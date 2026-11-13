@@ -54,21 +54,37 @@ interface LeadFilterBuilder<Q> {
   order(column: string, options: { ascending: boolean; nullsFirst?: boolean }): Q;
 }
 
-export async function queryLeads(context: TenantRequestContext, request: LeadSearchRequest, exportAll = false): Promise<PaginatedLeadRows> {
-  const timezone = await getTenantTimezone(context.tenantId);
+/**
+ * One read of the CSV download: rows [offset, offset + limit) of the table's filters and order, of the leads saved at
+ * or before savedBefore (the company's newest lead when the download began, see getLeadsCursor), so a lead arriving
+ * mid-download cannot shift the pages. The download reads page after page until one comes back empty: a single read
+ * would silently stop at the API's "Max rows" cap.
+ */
+export interface LeadExportPage { offset: number; limit: number; savedBefore: string }
+
+export async function queryLeads(context: TenantRequestContext, request: LeadSearchRequest, exportPage?: LeadExportPage): Promise<PaginatedLeadRows> {
+  const exportAll = exportPage !== undefined;
+  const timezone = await resolveTenantTimezone(context);
   const page = Math.max(1, request.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, request.pageSize ?? 25));
+  // The table needs the total for its pages; a download page does not, so it skips the exact count.
   let query = getSupabaseAdminClient().from("lead_data")
-    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", { count: "exact" })
+    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", exportAll ? undefined : { count: "exact" })
     .eq("tenant_id", context.tenantId);
+  if (exportPage) query = query.lte("created_at", exportPage.savedBefore);
   if (request.leadId) query = query.eq("id", request.leadId);
   query = applyLeadOrder(applyLeadFilters(query, context, request, timezone), request);
-  if (!exportAll) query = query.range((page - 1) * pageSize, page * pageSize - 1);
+  query = exportPage
+    ? query.range(exportPage.offset, exportPage.offset + exportPage.limit - 1)
+    : query.range((page - 1) * pageSize, page * pageSize - 1);
   const { data, error, count } = await query;
   if (error) throw new AppError("Leads could not be loaded.", { status: 500, code: "LEAD_QUERY_FAILED" });
   const items = (data ?? []).map((lead) => toLeadRow(lead as Record<string, unknown>));
-  await attachAssigneeNames(items);
-  if (!exportAll) await attachOpenTaskFlags(context, items);
+  // Independent reads about the same rows (they fill different fields): load them together. allSettled, so when both
+  // fail the names error is still the one reported, as when they ran one after the other.
+  const [names, taskFlags] = await Promise.allSettled([attachAssigneeNames(items), exportAll ? Promise.resolve() : attachOpenTaskFlags(context, items)]);
+  if (names.status === "rejected") throw names.reason;
+  if (taskFlags.status === "rejected") throw taskFlags.reason;
   const total = exportAll ? items.length : count ?? 0;
   return { items, total, page: exportAll ? 1 : page, pageSize: exportAll ? items.length : pageSize, totalPages: exportAll ? 1 : Math.max(1, Math.ceil(total / pageSize)), timezone };
 }
@@ -99,7 +115,7 @@ export async function getLeadsCursor(tenantId: string): Promise<string | null> {
  * last load, so every row counts.
  */
 export async function countNewLeadsOnFirstPage(context: TenantRequestContext, request: LeadSearchRequest, since: string | null, pageSize: number): Promise<number> {
-  const timezone = await getTenantTimezone(context.tenantId);
+  const timezone = await resolveTenantTimezone(context);
   const size = Math.min(100, Math.max(1, pageSize));
   let page = getSupabaseAdminClient().from("lead_data").select("id").eq("tenant_id", context.tenantId);
   page = applyLeadOrder(applyLeadFilters(page, context, request, timezone), request);
@@ -222,25 +238,42 @@ export type LeadFilterOptions = {
 
 export async function getLeadFilterOptions(context: TenantRequestContext, isOwner: boolean, pageRecordId?: string): Promise<LeadFilterOptions> {
   const db = getSupabaseAdminClient();
-  const { data: pages, error: pagesError } = await db.from("facebook_pages")
-    .select("id,facebook_page_name")
-    .eq("tenant_id", context.tenantId)
-    .eq("connection_status", "active")
-    .order("facebook_page_name");
-  if (pagesError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
-  const selectedPageId = pageRecordId && (pages ?? []).some((page) => page.id === pageRecordId) ? pageRecordId : undefined;
-  let adQuery = db.from("lead_data")
-    .select("ad_id,ad_name,lead_created_time")
-    .eq("tenant_id", context.tenantId)
-    .not("ad_id", "is", null)
-    .order("lead_created_time", { ascending: false })
-    .limit(500);
-  if (selectedPageId) adQuery = adQuery.eq("facebook_page_record_id", selectedPageId);
-  const { data: leads, error: adsError } = await adQuery;
-  if (adsError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
+  // Pages then ads (the ads read is narrowed to a Page only once that Page is known to be active), while the campaigns
+  // and the members load at the same time. allSettled keeps the errors in the order they had when each waited for the
+  // one before: Pages, ads, campaigns, then members.
+  const pagesThenAds = (async () => {
+    const { data: pages, error: pagesError } = await db.from("facebook_pages")
+      .select("id,facebook_page_name")
+      .eq("tenant_id", context.tenantId)
+      .eq("connection_status", "active")
+      .order("facebook_page_name");
+    if (pagesError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
+    const selectedPageId = pageRecordId && (pages ?? []).some((page) => page.id === pageRecordId) ? pageRecordId : undefined;
+    // Every ad with a lead (on that Page, when one is picked), newest first, each with its newest lead's ad name. The
+    // database function (migration 20261113122000) steps through the ad index, so no ad drops out of the filter
+    // because its leads are older than the newest 500, and no lead rows are sent just to build the list.
+    // Ordered here, before the API's row cap, so a company with more ads than the cap keeps its most recent ones.
+    const { data: ads, error: adsError } = await db.rpc("list_lead_filter_ads", selectedPageId
+      ? { p_tenant_id: context.tenantId, p_page_record_id: selectedPageId }
+      : { p_tenant_id: context.tenantId })
+      .order("newest_lead_at", { ascending: false })
+      .order("ad_id");
+    if (adsError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
+    return { pages, ads: (Array.isArray(ads) ? ads : []) as { ad_id?: unknown; ad_name?: unknown }[] };
+  })();
+  const [pagesAndAds, campaignsLookup, assigneesLookup] = await Promise.allSettled([
+    pagesThenAds,
+    db.rpc("list_google_lead_campaigns", { p_tenant_id: context.tenantId }),
+    listAssignableMembers(context.tenantId),
+  ]);
+  if (pagesAndAds.status === "rejected") throw pagesAndAds.reason;
+  if (campaignsLookup.status === "rejected") throw campaignsLookup.reason;
+  if (assigneesLookup.status === "rejected") throw assigneesLookup.reason;
+  const { pages, ads: adRows } = pagesAndAds.value;
+  const assignees = assigneesLookup.value;
   // Google Ads campaigns are isolated: if only their lookup fails, Page, Ad and Assignee still load for every company
   // (most use Facebook only) and the Campaign filter reports it, instead of the whole filter bar failing.
-  const { data: campaignData, error: campaignsError } = await db.rpc("list_google_lead_campaigns", { p_tenant_id: context.tenantId });
+  const { data: campaignData, error: campaignsError } = campaignsLookup.value;
   if (campaignsError) console.error(JSON.stringify({ operation: "lead_filter_options", code: "GOOGLE_CAMPAIGNS_LOOKUP_FAILED", dbCode: campaignsError.code ?? null }));
   const campaignResult = (campaignsError ? {} : campaignData ?? {}) as { campaigns?: unknown; hasUnattributed?: unknown };
   // Only ids the lead routes accept are offered (any other id would be rejected the moment it was picked), and a blank
@@ -249,13 +282,13 @@ export async function getLeadFilterOptions(context: TenantRequestContext, isOwne
     const { id, name } = (item ?? {}) as { id?: unknown; name?: unknown };
     return typeof id === "string" && GOOGLE_CAMPAIGN_ID_PATTERN.test(id) && typeof name === "string" ? [{ id, name: name.trim() || `Campaign ${id}` }] : [];
   });
-  const assignees = await listAssignableMembers(context.tenantId);
+  // Rows arrive newest lead first, so the first ad is the one the newest lead came from (the default, as before).
   const ads = new Map<string, { id: string; name: string | null }>();
-  for (const lead of leads ?? []) {
-    if (typeof lead.ad_id === "string" && !ads.has(lead.ad_id)) ads.set(lead.ad_id, { id: lead.ad_id, name: asNullableString(lead.ad_name) });
+  for (const row of adRows) {
+    if (typeof row.ad_id === "string" && !ads.has(row.ad_id)) ads.set(row.ad_id, { id: row.ad_id, name: asNullableString(row.ad_name) });
   }
   const values = [...ads.values()].sort((left, right) => (left.name ?? left.id).localeCompare(right.name ?? right.id));
-  return { pages: (pages ?? []).map((page) => ({ id: page.id, name: page.facebook_page_name })), ads: values, defaultAdId: leads?.[0]?.ad_id ?? null, campaigns, hasUnattributedCampaign: campaignResult.hasUnattributed === true, campaignsUnavailable: Boolean(campaignsError), assignees, isOwner };
+  return { pages: (pages ?? []).map((page) => ({ id: page.id, name: page.facebook_page_name })), ads: values, defaultAdId: ads.keys().next().value ?? null, campaigns, hasUnattributedCampaign: campaignResult.hasUnattributed === true, campaignsUnavailable: Boolean(campaignsError), assignees, isOwner };
 }
 
 /**
@@ -309,6 +342,46 @@ export async function deleteLead(context: TenantRequestContext, leadId: string):
   return { id: String(data.id) };
 }
 
+/**
+ * Permanently deletes the selected leads with one statement (one access check, one delete broadcast) instead of one
+ * request per lead, with the same outcome as deleting each lead on its own:
+ * - a lead another record still references (23503) blocks a whole statement, so then each lead is deleted on its own
+ *   and every other lead still goes;
+ * - a lead that is not this tenant's (or is already gone) is reported as LEAD_NOT_FOUND once the rest are gone.
+ * A failure carries details.deletedIds (lead ids only), so the page knows whether anything was deleted.
+ */
+export async function deleteLeads(context: TenantRequestContext, leadIds: string[]): Promise<{ deletedIds: string[] }> {
+  const ids = [...new Set(leadIds)];
+  const { data, error } = await getSupabaseAdminClient().from("lead_data")
+    .delete()
+    .eq("tenant_id", context.tenantId)
+    .in("id", ids)
+    .select("id");
+  if (error) {
+    if (error.code === "23503") return deleteLeadsOneByOne(context, ids);
+    throw new AppError("The lead could not be deleted.", { status: 500, code: "LEAD_DELETE_FAILED", details: { deletedIds: [] } });
+  }
+  const deleted = new Set((data ?? []).map((row) => String(row.id)));
+  const deletedIds = ids.filter((id) => deleted.has(id));
+  if (deletedIds.length < ids.length) throw new AppError("Lead not found for this tenant.", { status: 404, code: "LEAD_NOT_FOUND", details: { deletedIds } });
+  return { deletedIds };
+}
+
+/** The rare path: one lead at a time, in the selection's order; the first failure is the one reported. */
+async function deleteLeadsOneByOne(context: TenantRequestContext, ids: string[]): Promise<{ deletedIds: string[] }> {
+  const deletedIds: string[] = [];
+  let firstFailure: AppError | null = null;
+  for (const id of ids) {
+    try {
+      deletedIds.push((await deleteLead(context, id)).id);
+    } catch (error) {
+      firstFailure ??= error instanceof AppError ? error : new AppError("The lead could not be deleted.", { status: 500, code: "LEAD_DELETE_FAILED" });
+    }
+  }
+  if (firstFailure) throw new AppError(firstFailure.message, { status: firstFailure.status, code: firstFailure.code, details: { deletedIds } });
+  return { deletedIds };
+}
+
 /** One question of the Meta lead form and what the lead answered, as Meta sent it (key, not the question's display text). */
 export interface LeadFormAnswer { name: string; values: string[] }
 
@@ -344,10 +417,24 @@ function toFormAnswers(fieldData: unknown): LeadFormAnswer[] {
 function isContactField(name: string): boolean { return NAME_FIELD_KEYS.has(name) || EMAIL_FIELD_KEYS.has(name) || PHONE_FIELD_KEYS.has(name); }
 function asNullableString(value: unknown): string | null { return typeof value === "string" && value.trim() ? value : null; }
 
+function timezoneUnavailable(): AppError {
+  return new AppError("A verified tenant timezone is required before lead date filtering.", { status: 503, code: "TENANT_TIMEZONE_UNAVAILABLE" });
+}
+
 export async function getTenantTimezone(tenantId: string): Promise<string> {
   const { data, error } = await getSupabaseAdminClient().from("tenants").select("timezone").eq("tenant_id", tenantId).single();
-  if (error || !data || typeof data.timezone !== "string" || data.timezone === "UTC") throw new AppError("A verified tenant timezone is required before lead date filtering.", { status: 503, code: "TENANT_TIMEZONE_UNAVAILABLE" });
+  if (error || !data || typeof data.timezone !== "string" || data.timezone === "UTC") throw timezoneUnavailable();
   return data.timezone;
+}
+
+/**
+ * The company timezone for a signed-in request. The login check already read it (context.timezone), so here it is
+ * only validated, by the same rule as getTenantTimezone; a context that does not carry it is read from the database.
+ */
+export async function resolveTenantTimezone(context: { tenantId: string; timezone?: string | null }): Promise<string> {
+  if (context.timezone === undefined) return getTenantTimezone(context.tenantId);
+  if (typeof context.timezone !== "string" || context.timezone === "UTC") throw timezoneUnavailable();
+  return context.timezone;
 }
 export function resolveDateRange(request: LeadSearchRequest, timezone: string): { from: string; to: string } | null {
   let from = request.dateFrom; let to = request.dateTo;

@@ -5,6 +5,11 @@ import { requireCrmAccess } from "@/lib/server/auth/access";
 export interface TenantRequestContext {
   tenantId: string;
   userId: string;
+  /**
+   * The company timezone read by the same login check (always set by resolveTenantRequestContext). A context built
+   * any other way leaves it out, and resolveTenantTimezone then reads it from the database.
+   */
+  timezone?: string | null;
 }
 
 /**
@@ -22,7 +27,7 @@ export interface TenantRequestContext {
  */
 export async function resolveTenantRequestContext(): Promise<TenantRequestContext> {
   const access = await requireCrmAccess();
-  return { tenantId: access.tenantId, userId: access.userId };
+  return { tenantId: access.tenantId, userId: access.userId, timezone: access.timezone };
 }
 
 export async function resolveTenantId(): Promise<string> {

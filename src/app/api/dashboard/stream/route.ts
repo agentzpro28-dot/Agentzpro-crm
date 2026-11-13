@@ -39,6 +39,7 @@ export async function GET(request: Request): Promise<Response> {
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
+      let unsubscribe = () => {};
       const send = (chunk: string) => {
         if (closed) return;
         try {
@@ -48,16 +49,6 @@ export async function GET(request: Request): Promise<Response> {
         }
       };
       const sendEvent = (event: string, data: unknown) => send(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-
-      const unsubscribe = subscribeToTenantChanges(tenantId, (event, payload) => {
-        // An update says when the newest lead it changed was saved (a number, no lead data), so /leads can skip its
-        // check for older leads; every other change stays {}.
-        if (event === "change") sendEvent("change", payload?.newestSavedUs ? { kind: "update", newestSavedUs: payload.newestSavedUs } : {});
-        else if (event === "activity") { if (payload?.leadId) sendEvent("activity", { leadId: payload.leadId }); }
-        // A reminder belongs to one member; the other streams of the tenant never see it.
-        else if (event === "reminder") { if (payload?.userId === userId && payload.notificationId) sendEvent("task_reminder", { notificationId: payload.notificationId }); }
-        else sendEvent("status", { state: event });
-      });
       const heartbeat = setInterval(() => send(": ping\n\n"), HEARTBEAT_MS);
       const lifetime = setTimeout(close, STREAM_LIFETIME_MS);
 
@@ -77,10 +68,24 @@ export async function GET(request: Request): Promise<Response> {
         }
       }
       cleanup = close;
-
       request.signal.addEventListener("abort", close);
+
+      // "ready" goes out before subscribing: the relay tells a late joiner the channel's current state at once (it
+      // may already be "degraded"), and the dashboard and the lead timeline treat "ready" as "connected, stop the
+      // backup refresh". Sent the other way round, "ready" cancelled the "degraded" it followed.
       send(`retry: ${RECONNECT_DELAY_MS}\n\n`);
       sendEvent("ready", { tenantId });
+      if (closed) return;
+
+      unsubscribe = subscribeToTenantChanges(tenantId, (event, payload) => {
+        // An update says when the newest lead it changed was saved (a number, no lead data), so /leads can skip its
+        // check for older leads; every other change stays {}.
+        if (event === "change") sendEvent("change", payload?.newestSavedUs ? { kind: "update", newestSavedUs: payload.newestSavedUs } : {});
+        else if (event === "activity") { if (payload?.leadId) sendEvent("activity", { leadId: payload.leadId }); }
+        // A reminder belongs to one member; the other streams of the tenant never see it.
+        else if (event === "reminder") { if (payload?.userId === userId && payload.notificationId) sendEvent("task_reminder", { notificationId: payload.notificationId }); }
+        else sendEvent("status", { state: event });
+      });
     },
     cancel() {
       cleanup();

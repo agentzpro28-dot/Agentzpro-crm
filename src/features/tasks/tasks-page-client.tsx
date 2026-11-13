@@ -7,7 +7,11 @@ import type { LeadStatus, TaskRepeatRule } from "@/features/leads/lead-options";
 import { LeadDrawer, type DrawerLead } from "@/features/leads/lead-drawer";
 import { formatTaskDue } from "@/features/leads/lead-task-client";
 import { readError } from "@/features/leads/use-lead-filters";
+import type { AssignableMember } from "@/lib/server/lead-assignment-service";
 import type { TaskBucket, TaskOverview, TrackedTask } from "@/lib/server/task-tracking-service";
+
+/** What the page shows: a refresh that skipped the member list keeps the one already shown. */
+type ShownOverview = Omit<TaskOverview, "members"> & { members: AssignableMember[] };
 
 const TABS: { bucket: TaskBucket; label: string }[] = [
   { bucket: "today", label: "Today" },
@@ -16,8 +20,19 @@ const TABS: { bucket: TaskBucket; label: string }[] = [
   { bucket: "done", label: "Done" },
 ];
 const RANGES = [{ value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "all", label: "All time" }] as const;
-// A task slips from Today to Overdue as time passes, which produces no database event, so the list refetches.
+/**
+ * The list refetches this long after its last load. The live stream does not cover two things: a task slipping from
+ * Today to Overdue as time passes (no database event), and a task another member adds, moves or closes (lead_tasks
+ * sends no "change"). Only while the tab is visible: a hidden tab never polls, and the shell sends
+ * TASKS_CHANGED_EVENT the moment it comes back.
+ */
 const REFRESH_MS = 30_000;
+/**
+ * Live signals can come in bursts (a bulk delete or assign). The first one refetches at once; any that land in the
+ * next CHANGE_COOLDOWN_MS share one more refetch at its end, which also picks up a write that landed while the
+ * first refetch was already running.
+ */
+const CHANGE_COOLDOWN_MS = 750;
 
 /** "in 2 h", "15 min ago": how far the due time is from now. */
 export function relativeDue(dueAt: string, now = Date.now()): string {
@@ -32,36 +47,78 @@ export function TasksPageClient() {
   const [bucket, setBucket] = useState<TaskBucket>("today");
   const [member, setMember] = useState("");
   const [range, setRange] = useState<"7d" | "30d" | "all">("7d");
-  const [data, setData] = useState<TaskOverview | null>(null);
+  const [data, setData] = useState<ShownOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<TrackedTask | null>(null);
   const requestId = useRef(0);
+  const membersLoaded = useRef(false);
 
-  const load = useCallback(async () => {
+  /**
+   * withMembers: also read the owner's member list (on open, on a filter change, when the tab comes back). The regular
+   * refreshes skip it and keep the list shown, until one has been loaded at all.
+   */
+  const load = useCallback(async (withMembers: boolean) => {
     const id = ++requestId.current;
     const params = new URLSearchParams({ bucket, range });
     if (member) params.set("member", member);
+    if (!withMembers && membersLoaded.current) params.set("members", "0");
     try {
       const response = await fetch(`/api/tasks?${params}`);
       if (!response.ok) throw new Error(await readError(response, "Tasks could not be loaded."));
       const next = await response.json() as TaskOverview;
-      if (id === requestId.current) { setData(next); setError(null); }
+      if (next.members !== null) membersLoaded.current = true;
+      if (id === requestId.current) { setData((current) => ({ ...next, members: next.members ?? current?.members ?? [] })); setError(null); }
     } catch (cause) {
       if (id === requestId.current) setError(cause instanceof Error ? cause.message : "Tasks could not be loaded.");
     }
   }, [bucket, member, range]);
 
+  // Changes made elsewhere arrive on the shell's live stream (the bell re-dispatches them as TASKS_CHANGED_EVENT).
   useEffect(() => {
-    const first = setTimeout(() => void load(), 0);
-    const timer = setInterval(() => void load(), REFRESH_MS);
-    return () => { clearTimeout(first); clearInterval(timer); };
-  }, [load]);
+    let disposed = false;
+    let refresh: ReturnType<typeof setTimeout> | undefined;
+    let cooldown: ReturnType<typeof setTimeout> | undefined;
+    let pending = false;
+    // Set when the tab comes back: the next load (the shell's signal, else the fallback refresh) reads the members too.
+    let membersNext = false;
+    const takeMembers = () => { const value = membersNext; membersNext = false; return value; };
 
-  // Task changes made elsewhere arrive on the shell's live stream (the bell re-dispatches them); refetch on one.
-  useEffect(() => {
-    const onChanged = () => void load();
+    const armRefresh = () => {
+      clearTimeout(refresh);
+      refresh = disposed || document.hidden ? undefined : setTimeout(() => run(takeMembers()), REFRESH_MS);
+    };
+    function run(withMembers: boolean) {
+      clearTimeout(refresh);
+      refresh = undefined;
+      void load(withMembers).finally(() => { if (!disposed) armRefresh(); });
+    }
+    const endCooldown = () => {
+      if (!pending) { cooldown = undefined; return; }
+      pending = false;
+      run(takeMembers());
+      cooldown = setTimeout(endCooldown, CHANGE_COOLDOWN_MS);
+    };
+    const onChanged = () => {
+      if (cooldown) { pending = true; return; }
+      run(takeMembers());
+      cooldown = setTimeout(endCooldown, CHANGE_COOLDOWN_MS);
+    };
+    // Hidden: stop polling. Visible again: the shell's TASKS_CHANGED_EVENT refetches at once, so this only restarts
+    // the regular refresh (fetching here as well would load the list twice on every return).
+    const onVisibility = () => {
+      if (!document.hidden) membersNext = true;
+      armRefresh();
+    };
+
+    const first = setTimeout(() => run(true), 0);
     window.addEventListener(TASKS_CHANGED_EVENT, onChanged);
-    return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      disposed = true;
+      clearTimeout(first); clearTimeout(refresh); clearTimeout(cooldown);
+      window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   const counts = data?.counts;
@@ -108,8 +165,8 @@ export function TasksPageClient() {
           : <span className={bucket === "overdue" ? "mvp-tasks__overdue" : undefined}>{relativeDue(task.dueAt)}</span>}</td>
       </tr>)}
     </tbody></table></section>
-    {drawerLead && data ? <LeadDrawer key={drawerLead.id} lead={drawerLead} timezone={data.timezone} onClose={() => { setOpen(null); void load(); }}
-      onStatusChange={() => void load()} onOpenTaskChange={() => void load()} /> : null}
+    {drawerLead && data ? <LeadDrawer key={drawerLead.id} lead={drawerLead} timezone={data.timezone} onClose={() => { setOpen(null); void load(false); }}
+      onStatusChange={() => void load(false)} onOpenTaskChange={() => void load(false)} /> : null}
   </div>;
 }
 

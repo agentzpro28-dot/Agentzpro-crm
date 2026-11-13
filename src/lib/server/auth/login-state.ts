@@ -21,6 +21,8 @@ export type LoginState =
       membershipRole: string;
       membershipStatus: string;
       tenantStatus: string;
+      /** The company clock as stored (null or the "UTC" placeholder until onboarding sets it); see resolveTenantTimezone. */
+      timezone: string | null;
       subscriptionStatus: string;
       trialEndsAt: string | null;
       currentPeriodEndsAt: string | null;
@@ -33,6 +35,34 @@ function logIntegrityError(userId: string, reason: string): void {
   console.error(JSON.stringify({ operation: "resolve_login_state", code: "LOGIN_STATE_INTEGRITY_ERROR", userId, reason }));
 }
 
+/** The membership row with its tenant and that tenant's subscription embedded (null when missing). */
+interface MembershipRow {
+  tenant_id: string;
+  membership_role: string;
+  membership_status: string;
+  tenants: {
+    tenant_name: string;
+    tenant_status: string;
+    timezone: string | null;
+    tenants_subscriptions: {
+      subscription_status: string;
+      trial_ends_at: string | null;
+      current_period_ends_at: string | null;
+      is_internal: boolean | null;
+    } | null;
+  } | null;
+}
+
+/**
+ * Embeds the tenant (many-to-one) and its subscription (one-to-one: tenants_subscriptions is unique
+ * on tenant_id, so it comes back as one object). Both are LEFT embeds on purpose: a missing tenant or
+ * subscription must still surface as its own integrity error below, never as "no company".
+ */
+const MEMBERSHIP_WITH_TENANT_SELECT =
+  "tenant_id, membership_role, membership_status, " +
+  "tenants!tenant_memberships_tenant_id_fkey(tenant_name, tenant_status, timezone, " +
+  "tenants_subscriptions!tenants_subscriptions_tenant_id_fkey(subscription_status, trial_ends_at, current_period_ends_at, is_internal))";
+
 /**
  * Resolves the current login state for a verified `userId` by reading the
  * profile / membership / tenant / subscription chain with the trusted
@@ -41,26 +71,35 @@ function logIntegrityError(userId: string, reason: string): void {
  *
  * One login belongs to exactly one company: tenant_memberships is unique on
  * user_id, so there is at most one membership row to read.
+ *
+ * This runs on every CRM API call, so it costs exactly two reads sent together (one round trip):
+ * the membership with its tenant and subscription embedded, and the profile. The checks below keep
+ * the same order and outcomes as reading the four tables one by one.
  */
 export async function resolveLoginState(userId: string): Promise<LoginState> {
   const db = getSupabaseAdminClient();
 
-  const { data: membership, error: membershipError } = await db
-    .from("tenant_memberships")
-    .select("tenant_id, membership_role, membership_status")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const [membershipResult, profileResult] = await Promise.all([
+    db
+      .from("tenant_memberships")
+      .select(MEMBERSHIP_WITH_TENANT_SELECT)
+      .eq("user_id", userId)
+      .maybeSingle<MembershipRow>(),
+    db
+      .from("profiles")
+      .select("user_id, full_name")
+      .eq("user_id", userId)
+      .maybeSingle<{ user_id: string; full_name: string }>(),
+  ]);
+
+  const { data: membership, error: membershipError } = membershipResult;
 
   if (membershipError) {
     logIntegrityError(userId, "MEMBERSHIP_QUERY_FAILED");
     return { status: "integrity_error", reason: "MEMBERSHIP_QUERY_FAILED" };
   }
 
-  const { data: profile, error: profileError } = await db
-    .from("profiles")
-    .select("user_id, full_name")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const { data: profile, error: profileError } = profileResult;
 
   if (profileError) {
     logIntegrityError(userId, "PROFILE_QUERY_FAILED");
@@ -84,24 +123,16 @@ export async function resolveLoginState(userId: string): Promise<LoginState> {
     return { status: "no_company" };
   }
 
-  const { data: tenant, error: tenantError } = await db
-    .from("tenants")
-    .select("tenant_name, tenant_status")
-    .eq("tenant_id", membership.tenant_id)
-    .maybeSingle();
+  const tenant = membership.tenants;
 
-  if (tenantError || !tenant) {
+  if (!tenant) {
     logIntegrityError(userId, "TENANT_MISSING");
     return { status: "integrity_error", reason: "TENANT_MISSING" };
   }
 
-  const { data: subscription, error: subscriptionError } = await db
-    .from("tenants_subscriptions")
-    .select("subscription_status, trial_ends_at, current_period_ends_at, is_internal")
-    .eq("tenant_id", membership.tenant_id)
-    .maybeSingle();
+  const subscription = tenant.tenants_subscriptions;
 
-  if (subscriptionError || !subscription) {
+  if (!subscription) {
     logIntegrityError(userId, "SUBSCRIPTION_MISSING");
     return { status: "integrity_error", reason: "SUBSCRIPTION_MISSING" };
   }
@@ -114,6 +145,7 @@ export async function resolveLoginState(userId: string): Promise<LoginState> {
     membershipRole: membership.membership_role,
     membershipStatus: membership.membership_status,
     tenantStatus: tenant.tenant_status,
+    timezone: tenant.timezone,
     subscriptionStatus: subscription.subscription_status,
     trialEndsAt: subscription.trial_ends_at,
     currentPeriodEndsAt: subscription.current_period_ends_at,

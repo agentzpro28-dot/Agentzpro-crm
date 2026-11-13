@@ -109,10 +109,10 @@ function stubLeadApi(dummyLeads: DummyLead[] = [], patchOptions: { fail?: boolea
       sent.patches.push({ id: patchMatch[1], body });
       return jsonResponse({ id: patchMatch[1], status: body.status ?? "New Lead", label: body.label ?? "Warm", labelSource: "telecaller" });
     }
-    const deleteMatch = /^\/api\/leads\/([^/]+)$/.exec(url);
-    if (deleteMatch && init?.method === "DELETE") {
-      sent.deletes.push(deleteMatch[1]);
-      return jsonResponse({ id: deleteMatch[1] });
+    if (url === "/api/leads/bulk-delete" && init?.method === "POST") {
+      const { ids } = JSON.parse(String(init.body)) as { ids: string[] };
+      sent.deletes.push(...ids);
+      return jsonResponse({ deletedIds: ids });
     }
     throw new Error(`Unexpected request: ${url}`);
   }));
@@ -502,6 +502,21 @@ describe("deleting leads", () => {
     expect(screen.getByText("Dummy One")).toBeInTheDocument();
   });
 
+  it("deletes the whole selection with one request, not one per lead", async () => {
+    const sent = stubLeadApi(DUMMY_LEADS);
+    vi.spyOn(globalThis, "confirm").mockReturnValue(true);
+    vi.spyOn(globalThis, "alert").mockImplementation(() => {});
+    await renderLeadsPage(sent);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Dummy One" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Dummy Two" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete (2)" }));
+
+    await waitFor(() => expect(sent.deletes).toEqual(["lead-1", "lead-2"]));
+    const deleteRequests = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/leads/bulk-delete");
+    expect(deleteRequests).toHaveLength(1);
+  });
+
   it("shows the server's error and keeps the row when the delete request fails", async () => {
     const sent = stubLeadApi(DUMMY_LEADS);
     vi.spyOn(globalThis, "confirm").mockReturnValue(true);
@@ -510,7 +525,7 @@ describe("deleting leads", () => {
       const url = String(input);
       if (url.startsWith("/api/leads/filters")) return jsonResponse(FILTER_OPTIONS);
       if (url === "/api/leads/query") { sent.query.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return jsonResponse({ items: DUMMY_LEADS, total: DUMMY_LEADS.length, timezone: "Asia/Kolkata" }); }
-      if (url === "/api/leads/lead-1" && init?.method === "DELETE") return jsonResponse({ error: { message: "This lead cannot be deleted because other records still reference it." } }, 409);
+      if (url === "/api/leads/bulk-delete" && init?.method === "POST") return jsonResponse({ error: { message: "This lead cannot be deleted because other records still reference it.", details: { deletedIds: [] } } }, 409);
       throw new Error(`Unexpected request: ${url}`);
     }));
     await renderLeadsPage(sent);
@@ -901,8 +916,8 @@ describe("Google Ads Campaign filter", () => {
       const url = String(input);
       if (url.startsWith("/api/leads/filters")) { sent.filterLoads += 1; return jsonResponse(FILTER_OPTIONS); }
       if (url === "/api/leads/query") { sent.query.push(JSON.parse(String(init?.body)) as Record<string, unknown>); return jsonResponse({ items: DUMMY_LEADS, total: DUMMY_LEADS.length, timezone: "Asia/Kolkata" }); }
-      if (url === "/api/leads/lead-1" && init?.method === "DELETE") return jsonResponse({ error: { message: "This lead cannot be deleted because other records still reference it." } }, 409);
-      if (url === "/api/leads/lead-2" && init?.method === "DELETE") return jsonResponse({ id: "lead-2" });
+      // The server deleted lead-2 and could not delete lead-1.
+      if (url === "/api/leads/bulk-delete" && init?.method === "POST") return jsonResponse({ error: { message: "This lead cannot be deleted because other records still reference it.", details: { deletedIds: ["lead-2"] } } }, 409);
       throw new Error(`Unexpected request: ${url}`);
     }));
     render(<LeadsPageClient />);

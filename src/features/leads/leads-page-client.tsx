@@ -85,7 +85,9 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
       // so a download can never disagree with the rows on screen.
       const response = await fetch("/api/leads/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(filters.filterBody()) });
       if (!response.ok) throw new Error(await readError(response, "Leads could not be exported."));
-      const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a");
+      // The file is streamed: a read that fails halfway ends it with an error, and nothing is saved.
+      const file = await response.blob().catch(() => { throw new Error("Leads could not be exported."); });
+      const url = URL.createObjectURL(file); const link = document.createElement("a");
       link.href = url; link.download = "agentzpro-leads.csv"; link.click(); URL.revokeObjectURL(url);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Leads could not be exported."); }
   }
@@ -106,12 +108,14 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
     if (!warned) return;
     setIsDeleting(true);
     try {
-      const responses = await Promise.all(selectedLeadIds.map((id) => fetch(`/api/leads/${id}`, { method: "DELETE" })));
+      // One request for the whole selection (it never exceeds one page, MAX_BULK_DELETE_LEADS).
+      const response = await fetch("/api/leads/bulk-delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: selectedLeadIds }) });
+      const result = await response.json().catch(() => null) as { deletedIds?: unknown; error?: { message?: string; details?: { deletedIds?: unknown } } } | null;
+      const deletedIds = response.ok ? result?.deletedIds : result?.error?.details?.deletedIds;
       // A deleted lead may have been the last one of a campaign (or the last unattributed one): refresh the choices
       // whenever any lead was deleted, also when another one in the same batch failed.
-      if (responses.some((response) => response.ok)) filters.reloadOptions();
-      const failed = responses.find((response) => !response.ok);
-      if (failed) throw new Error(await readError(failed, "Selected leads could not be deleted."));
+      if (Array.isArray(deletedIds) && deletedIds.length > 0) filters.reloadOptions();
+      if (!response.ok) throw new Error(result?.error?.message ?? "Selected leads could not be deleted.");
       setLeads((current) => current.filter((lead) => !selectedLeadIds.includes(lead.id)));
       setSelectedLeadIds([]);
       globalThis.alert(`${count} lead${count === 1 ? "" : "s"} deleted.`);

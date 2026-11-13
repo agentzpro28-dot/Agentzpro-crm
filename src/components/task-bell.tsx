@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { formatDateTime } from "@/lib/date-utils";
 import { readLeadChange } from "@/lib/lead-change-signal";
+import { openLiveStream, type LiveStream } from "@/lib/live-stream";
 import type { TaskNotification } from "@/lib/server/task-notification-service";
 import logoIcon from "@/logo-icon.png";
 
@@ -93,8 +94,9 @@ export function TaskAlertsProvider({ children }: Readonly<{ children: React.Reac
   useEffect(() => {
     const first = setTimeout(() => void load(false), 0);
     // One live stream for the whole shell (the Tasks page listens to the window events below instead of opening
-    // its own). It is closed while the tab is hidden, like the dashboard's, and a catch-up fetch runs on return.
-    let source: EventSource | null = null;
+    // its own; the dashboard and the lead timeline share the same connection through openLiveStream). It is closed
+    // while the tab is hidden, like the dashboard's, and a catch-up fetch runs on return.
+    let source: LiveStream | null = null;
     // Up only once the server says "live" on this connection: from then on every lead write reaches the page. Any
     // doubt (an error, "degraded", unreadable data, a hidden tab, a stream quiet for too long) counts as down, and
     // /leads then runs its own once-a-minute check, as it did before.
@@ -110,7 +112,7 @@ export function TaskAlertsProvider({ children }: Readonly<{ children: React.Reac
     };
     const open = () => {
       source?.close();
-      const next = new EventSource("/api/dashboard/stream");
+      const next = openLiveStream();
       source = next;
       next.addEventListener("task_reminder", () => { void load(true); window.dispatchEvent(new Event(TASKS_CHANGED_EVENT)); });
       next.addEventListener("change", (event) => {

@@ -3,7 +3,7 @@ import "server-only";
 import type { DashboardPlatformId } from "@/features/dashboard/dashboard-platforms";
 import { AppError } from "@/lib/server/app-error";
 import {
-  getTenantTimezone,
+  resolveTenantTimezone,
   localDate,
   resolveDateRange,
   zonedMidnight,
@@ -123,7 +123,7 @@ function chooseGranularity(range: { from: string; to: string } | null): Timeline
 }
 
 export async function getDashboardStats(context: TenantRequestContext, request: DashboardStatsRequest): Promise<DashboardStats> {
-  const timezone = await getTenantTimezone(context.tenantId);
+  const timezone = await resolveTenantTimezone(context);
   const args = buildDashboardRpcArgs(context.tenantId, timezone, request);
   const { data, error } = await getSupabaseAdminClient().rpc("get_dashboard_platform_stats_v2", args);
   if (error || !data || typeof data !== "object") {

@@ -29,11 +29,57 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export async function getConnectionOverview(): Promise<ConnectionOverview> { return request<ConnectionOverview>("/api/meta/connection"); }
-export async function startMetaConnection(shortLivedUserAccessToken: string): Promise<{ connectionId: string; pages: EligibleFacebookPage[] }> { return request("/api/meta/connections", { method: "POST", body: JSON.stringify({ short_lived_user_access_token: shortLivedUserAccessToken }) }); }
-export async function connectSelectedPages(connectionId: string, facebookPageIds: string[]): Promise<ConnectionOverview> { return request("/api/meta/pages/connect", { method: "POST", body: JSON.stringify({ connection_id: connectionId, facebook_page_ids: facebookPageIds }) }); }
-export async function disconnectFacebookPage(pageRecordId: string): Promise<ConnectionOverview> { return request("/api/meta/pages/disconnect", { method: "POST", body: JSON.stringify({ page_record_id: pageRecordId }) }); }
-export async function disconnectMetaConnection(connectionId: string): Promise<ConnectionOverview> { return request("/api/meta/disconnect", { method: "POST", body: JSON.stringify({ connection_id: connectionId }) }); }
+/**
+ * The three connection checks every CRM page makes (Facebook, Google Ads, webhook: the reconnect banner, the /leads
+ * Source filter, the dashboard's platform switch) are shared within the browser tab, because each one costs a full
+ * access check plus its own queries:
+ * - a check already running is joined, so the banner and the page opening together send it once;
+ * - an answer is reused for CONNECTION_CHECK_REUSE_MS (the banner's own re-check interval), so a click from Leads to
+ *   Dashboard sends none again;
+ * - a failed check is never reused;
+ * - `fresh` (the Integrations page, the banner's own checks) skips a stored answer, but still joins one running now;
+ * - every connection change made from this tab clears them all.
+ */
+const CONNECTION_CHECK_REUSE_MS = 60_000;
+const connectionChecks = new Map<string, { promise: Promise<unknown>; settledAt: number | null }>();
+
+function sharedConnectionCheck<T>(path: string, fresh: boolean): Promise<T> {
+  const stored = connectionChecks.get(path);
+  if (stored && (stored.settledAt === null || (!fresh && Date.now() - stored.settledAt < CONNECTION_CHECK_REUSE_MS))) {
+    return stored.promise as Promise<T>;
+  }
+  const entry: { promise: Promise<T>; settledAt: number | null } = { promise: request<T>(path), settledAt: null };
+  connectionChecks.set(path, entry);
+  entry.promise.then(
+    () => { entry.settledAt = Date.now(); },
+    () => { if (connectionChecks.get(path) === entry) connectionChecks.delete(path); },
+  );
+  return entry.promise;
+}
+
+/**
+ * Forgets every shared connection check. The checks belong to one signed-in session: the CRM shell calls this when it
+ * opens and when it closes, because login, logout and idle logout all move in-page (the module stays loaded), and one
+ * person's company must never be shown to the next person in the same tab.
+ */
+export function clearConnectionChecks(): void {
+  connectionChecks.clear();
+}
+
+/** A request that changes a connection: afterwards no stored connection check may be reused. */
+async function changeConnection<T>(path: string, init: RequestInit): Promise<T> {
+  try {
+    return await request<T>(path, init);
+  } finally {
+    clearConnectionChecks();
+  }
+}
+
+export async function getConnectionOverview(options: { fresh?: boolean } = {}): Promise<ConnectionOverview> { return sharedConnectionCheck<ConnectionOverview>("/api/meta/connection", options.fresh === true); }
+export async function startMetaConnection(shortLivedUserAccessToken: string): Promise<{ connectionId: string; pages: EligibleFacebookPage[] }> { return changeConnection("/api/meta/connections", { method: "POST", body: JSON.stringify({ short_lived_user_access_token: shortLivedUserAccessToken }) }); }
+export async function connectSelectedPages(connectionId: string, facebookPageIds: string[]): Promise<ConnectionOverview> { return changeConnection("/api/meta/pages/connect", { method: "POST", body: JSON.stringify({ connection_id: connectionId, facebook_page_ids: facebookPageIds }) }); }
+export async function disconnectFacebookPage(pageRecordId: string): Promise<ConnectionOverview> { return changeConnection("/api/meta/pages/disconnect", { method: "POST", body: JSON.stringify({ page_record_id: pageRecordId }) }); }
+export async function disconnectMetaConnection(connectionId: string): Promise<ConnectionOverview> { return changeConnection("/api/meta/disconnect", { method: "POST", body: JSON.stringify({ connection_id: connectionId }) }); }
 
 export type GoogleAdsOverview = {
   canManage: boolean;
@@ -51,12 +97,15 @@ export type GoogleAdsAccountOption = { customerId: string; name: string | null; 
  * campaigns: true (Connection card only) also lists the campaigns Google has delivered leads from with the current
  * key; without it webhook.campaigns is null, so /leads and the dashboard do no extra read.
  */
-export async function getGoogleAdsOverview(options: { campaigns?: boolean } = {}): Promise<GoogleAdsOverview> { return request<GoogleAdsOverview>(options.campaigns ? "/api/integrations/google?campaigns=1" : "/api/integrations/google"); }
-export async function createGoogleAdsWebhook(): Promise<{ url: string; key: string }> { return request("/api/integrations/google/webhook", { method: "POST", body: "{}" }); }
+export async function getGoogleAdsOverview(options: { campaigns?: boolean } = {}): Promise<GoogleAdsOverview> {
+  // The Connection card's view (with campaigns) is always read fresh; the plain check is shared (see above).
+  return options.campaigns ? request<GoogleAdsOverview>("/api/integrations/google?campaigns=1") : sharedConnectionCheck<GoogleAdsOverview>("/api/integrations/google", false);
+}
+export async function createGoogleAdsWebhook(): Promise<{ url: string; key: string }> { return changeConnection("/api/integrations/google/webhook", { method: "POST", body: "{}" }); }
 export async function getGoogleAdsAccountOptions(): Promise<{ accounts: GoogleAdsAccountOption[] }> { return request("/api/integrations/google/accounts"); }
-export async function saveGoogleAdsAccounts(customerIds: string[]): Promise<{ saved: boolean }> { return request("/api/integrations/google/accounts", { method: "POST", body: JSON.stringify({ customerIds }) }); }
-export async function disconnectGoogleAds(): Promise<{ disconnected: boolean }> { return request("/api/integrations/google/disconnect", { method: "POST", body: "{}" }); }
-export async function stopGoogleAdsWebhook(): Promise<{ stopped: boolean }> { return request("/api/integrations/google/webhook", { method: "DELETE" }); }
+export async function saveGoogleAdsAccounts(customerIds: string[]): Promise<{ saved: boolean }> { return changeConnection("/api/integrations/google/accounts", { method: "POST", body: JSON.stringify({ customerIds }) }); }
+export async function disconnectGoogleAds(): Promise<{ disconnected: boolean }> { return changeConnection("/api/integrations/google/disconnect", { method: "POST", body: "{}" }); }
+export async function stopGoogleAdsWebhook(): Promise<{ stopped: boolean }> { return changeConnection("/api/integrations/google/webhook", { method: "DELETE" }); }
 
 export type CustomWebhookOverview = {
   canManage: boolean;
@@ -67,6 +116,9 @@ export type CustomWebhookOverview = {
 };
 
 /** details: true (Connection card only) adds the owner's webhook URL; /leads and the dashboard never ask for it. */
-export async function getCustomWebhookOverview(options: { details?: boolean } = {}): Promise<CustomWebhookOverview> { return request<CustomWebhookOverview>(options.details ? "/api/integrations/custom-webhook?details=1" : "/api/integrations/custom-webhook"); }
-export async function createCustomWebhook(): Promise<{ url: string }> { return request("/api/integrations/custom-webhook", { method: "POST", body: "{}" }); }
-export async function stopCustomWebhook(): Promise<{ stopped: boolean }> { return request("/api/integrations/custom-webhook", { method: "DELETE" }); }
+export async function getCustomWebhookOverview(options: { details?: boolean } = {}): Promise<CustomWebhookOverview> {
+  // The Connection card's view (with the URL) is always read fresh; the plain check is shared (see above).
+  return options.details ? request<CustomWebhookOverview>("/api/integrations/custom-webhook?details=1") : sharedConnectionCheck<CustomWebhookOverview>("/api/integrations/custom-webhook", false);
+}
+export async function createCustomWebhook(): Promise<{ url: string }> { return changeConnection("/api/integrations/custom-webhook", { method: "POST", body: "{}" }); }
+export async function stopCustomWebhook(): Promise<{ stopped: boolean }> { return changeConnection("/api/integrations/custom-webhook", { method: "DELETE" }); }

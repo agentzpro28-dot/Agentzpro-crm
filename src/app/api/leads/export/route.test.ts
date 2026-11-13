@@ -1,16 +1,26 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ context: vi.fn(), query: vi.fn() }));
+const mocks = vi.hoisted(() => ({ context: vi.fn(), query: vi.fn(), cursor: vi.fn(), timezone: vi.fn() }));
 vi.mock("@/lib/server/tenant-context", () => ({ resolveTenantRequestContext: mocks.context }));
-vi.mock("@/lib/server/lead-query-service", () => ({ queryLeads: mocks.query }));
+vi.mock("@/lib/server/lead-query-service", () => ({ queryLeads: mocks.query, getLeadsCursor: mocks.cursor, resolveTenantTimezone: mocks.timezone }));
 
 import { POST } from "./route";
+
+/** The newest lead when the download began: every read is limited to leads saved up to it. */
+const CURSOR = "2026-11-13T09:00:00.123456+00:00";
+const FIRST_PAGE = { offset: 0, limit: 1000, savedBefore: CURSOR };
+/** The query service answers with these rows once; the next read is empty, which ends the download. */
+function onePage(page: { timezone: string; total: number; items: unknown[] }) {
+  mocks.query.mockReset();
+  mocks.query.mockResolvedValueOnce(page).mockResolvedValue({ ...page, items: [] });
+  mocks.cursor.mockResolvedValue(CURSOR);
+}
 
 describe("authenticated lead CSV route", () => {
   it("passes tenant and every filter to export mode and returns all filtered rows", async () => {
     mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
-    mocks.query.mockResolvedValue({
+    onePage({
       timezone: "Asia/Kolkata",
       total: 2,
       items: [
@@ -22,7 +32,7 @@ describe("authenticated lead CSV route", () => {
     const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify(filters), headers: { "content-type": "application/json" } }));
     const csv = await response.text();
     expect(response.status).toBe(200);
-    expect(mocks.query).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, expect.objectContaining(filters), true);
+    expect(mocks.query).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, expect.objectContaining(filters), FIRST_PAGE);
     const lines = csv.replace(/^﻿/, "").split("\r\n");
     expect(lines[0]).toBe("Lead ID,Lead Name,Lead Date,Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To");
     // The date sits right after the name in every row too, formatted on the company clock.
@@ -42,7 +52,7 @@ describe("authenticated lead CSV route", () => {
    */
   it("accepts every filter combination the Download button sends and exports each in full", async () => {
     mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
-    mocks.query.mockResolvedValue({ timezone: "Asia/Kolkata", total: 0, items: [] });
+    onePage({ timezone: "Asia/Kolkata", total: 0, items: [] });
     const bodies = [
       { quickFilter: "all" },
       { quickFilter: "today" },
@@ -61,13 +71,13 @@ describe("authenticated lead CSV route", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/csv");
       // Every filter reaches the query service unchanged, in export mode (no pagination).
-      expect(mocks.query).toHaveBeenLastCalledWith({ tenantId: "tenant-a", userId: "user-a" }, body, true);
+      expect(mocks.query).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, body, FIRST_PAGE);
     }
   });
 
   it("accepts the Source filter and writes empty Lead ID, Page and Ad cells for a call-in lead", async () => {
     mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
-    mocks.query.mockResolvedValue({
+    onePage({
       timezone: "Asia/Kolkata", total: 1,
       items: [{ leadgenId: "", leadName: "Caller", email: null, phone: "9876543210", facebookPage: "-", adName: "-", adId: null, source: "telecaller", status: "New Lead", label: "Warm", leadDate: "2026-10-26T05:00:00Z", assigneeName: "Ravi" }],
     });
@@ -93,25 +103,87 @@ describe("authenticated lead CSV route", () => {
 describe("authenticated lead CSV route, webhook leads", () => {
   it("accepts the Webhook source and writes the tool's lead_id, Webhook and the source it named", async () => {
     mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
-    mocks.query.mockResolvedValue({
+    onePage({
       timezone: "Asia/Kolkata", total: 1,
       items: [{ leadgenId: "lp-42", leadName: "John Doe", email: "john@example.com", phone: "9876543210", facebookPage: "Webhook", adName: "Landing Page", adId: null, source: "custom_webhook", status: "New Lead", label: "Warm", leadDate: "2026-11-11T05:00:00Z", assigneeName: null }],
     });
     const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all", source: "custom_webhook" }), headers: { "content-type": "application/json" } }));
     expect(response.status).toBe(200);
-    expect(mocks.query).toHaveBeenLastCalledWith({ tenantId: "tenant-a", userId: "user-a" }, { quickFilter: "all", source: "custom_webhook" }, true);
+    expect(mocks.query).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, { quickFilter: "all", source: "custom_webhook" }, FIRST_PAGE);
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-11T05:00:00Z"));
     expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`lp-42,John Doe,"${date}",New Lead,Warm,john@example.com,9876543210,Webhook,Landing Page,,`);
   });
 
   it("leaves the Ad Name cell empty for a webhook lead sent without a source (never '-)", async () => {
     mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
-    mocks.query.mockResolvedValue({
+    onePage({
       timezone: "Asia/Kolkata", total: 1,
       items: [{ leadgenId: "", leadName: "Asha", email: "asha@example.com", phone: null, facebookPage: "Webhook", adName: "-", adId: null, source: "custom_webhook", status: "New Lead", label: "Warm", leadDate: "2026-11-11T05:00:00Z", assigneeName: null }],
     });
     const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all", source: "custom_webhook" }), headers: { "content-type": "application/json" } }));
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-11T05:00:00Z"));
     expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`,Asha,"${date}",New Lead,Warm,asha@example.com,,Webhook,,,`);
+  });
+});
+
+describe("large downloads", () => {
+  const row = (index: number) => ({ leadgenId: `lg-${index}`, leadName: `Lead ${index}`, email: null, phone: null, facebookPage: "Page A", adName: "Ad A", adId: "ad-a", source: "facebook", status: "New Lead", label: "Warm", leadDate: "2026-11-11T05:00:00Z", assigneeName: null });
+  const rows = (from: number, count: number) => Array.from({ length: count }, (_, offset) => row(from + offset));
+  const page = (items: unknown[]) => ({ timezone: "Asia/Kolkata", total: items.length, page: 1, pageSize: items.length, totalPages: 1, items });
+  const exportAll = () => POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all" }), headers: { "content-type": "application/json" } }));
+  const dataLines = (csv: string) => csv.replace(/^﻿/, "").split("\r\n").slice(1);
+
+  it("reads page after page until one is empty, so more leads than one read returns all reach the file", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    mocks.cursor.mockResolvedValue(CURSOR);
+    mocks.query.mockReset();
+    mocks.query.mockResolvedValueOnce(page(rows(0, 1000))).mockResolvedValueOnce(page(rows(1000, 1))).mockResolvedValue(page([]));
+    const lines = dataLines(await (await exportAll()).text());
+    expect(lines).toHaveLength(1001);
+    expect(lines[1000]).toContain("lg-1000,Lead 1000");
+    expect(mocks.query.mock.calls.map((call) => call[2])).toEqual([0, 1000, 1001].map((offset) => ({ offset, limit: 1000, savedBefore: CURSOR })));
+  });
+
+  it("does not stop early when the API's row cap is lower than one read", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    mocks.cursor.mockResolvedValue(CURSOR);
+    mocks.query.mockReset();
+    mocks.query.mockResolvedValueOnce(page(rows(0, 500))).mockResolvedValueOnce(page(rows(500, 500))).mockResolvedValue(page([]));
+    expect(dataLines(await (await exportAll()).text())).toHaveLength(1000);
+    expect(mocks.query.mock.calls.map((call) => (call[2] as { offset: number }).offset)).toEqual([0, 500, 1000]);
+  });
+
+  it("writes only the header for a company with no leads, after the same company-clock check", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    mocks.cursor.mockResolvedValue(null);
+    mocks.timezone.mockResolvedValue("Asia/Kolkata");
+    mocks.query.mockReset();
+    const response = await exportAll();
+    expect(response.status).toBe(200);
+    expect((await response.text()).replace(/^﻿/, "")).toBe("Lead ID,Lead Name,Lead Date,Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To");
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it("answers with the usual error when the first read fails, before any of the file is sent", async () => {
+    const { AppError } = await import("@/lib/server/app-error");
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    mocks.cursor.mockResolvedValue(CURSOR);
+    mocks.query.mockReset();
+    mocks.query.mockRejectedValue(new AppError("Leads could not be loaded.", { status: 500, code: "LEAD_QUERY_FAILED" }));
+    const response = await exportAll();
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "LEAD_QUERY_FAILED" } });
+  });
+
+  it("ends the download with an error when a later read fails, so a cut-off file is never saved as complete", async () => {
+    const { AppError } = await import("@/lib/server/app-error");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    mocks.cursor.mockResolvedValue(CURSOR);
+    mocks.query.mockReset();
+    mocks.query.mockResolvedValueOnce(page(rows(0, 1000))).mockRejectedValue(new AppError("Leads could not be loaded.", { status: 500, code: "LEAD_QUERY_FAILED" }));
+    const response = await exportAll();
+    expect(response.status).toBe(200);
+    await expect(response.text()).rejects.toThrow();
   });
 });

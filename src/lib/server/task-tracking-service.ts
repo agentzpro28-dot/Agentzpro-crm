@@ -3,7 +3,7 @@ import "server-only";
 import type { CrmAccessGranted } from "@/lib/server/auth/access";
 import { AppError } from "@/lib/server/app-error";
 import { listAssignableMembers, type AssignableMember } from "@/lib/server/lead-assignment-service";
-import { getTenantTimezone } from "@/lib/server/lead-query-service";
+import { resolveTenantTimezone } from "@/lib/server/lead-query-service";
 import { getSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 export const TASK_BUCKETS = ["overdue", "today", "upcoming", "done"] as const;
@@ -25,9 +25,13 @@ export interface TrackedTask {
 export interface TaskCounts { overdue: number; today: number; upcoming: number; done: number; doneOnTime: number; }
 export interface TaskOverview {
   items: TrackedTask[]; counts: TaskCounts; timezone: string;
-  isOwner: boolean; members: AssignableMember[]; page: number; pageSize: number;
+  isOwner: boolean;
+  /** The owner's team for the member filter (always [] for an employee); null when a refresh skipped it (withMembers false). */
+  members: AssignableMember[] | null;
+  page: number; pageSize: number;
 }
-export interface TaskOverviewRequest { bucket: TaskBucket; member?: string; range?: DoneRange; page?: number; }
+/** withMembers false: a refresh of a list the page already shows, which keeps the member list it has (default true). */
+export interface TaskOverviewRequest { bucket: TaskBucket; member?: string; range?: DoneRange; page?: number; withMembers?: boolean; }
 
 const PAGE_SIZE = 50;
 
@@ -39,7 +43,7 @@ const PAGE_SIZE = 50;
 export async function getTaskOverview(access: CrmAccessGranted, request: TaskOverviewRequest): Promise<TaskOverview> {
   const isOwner = access.membershipRole === "owner";
   const ownerFilter = isOwner ? request.member ?? null : access.userId;
-  const timezone = await getTenantTimezone(access.tenantId);
+  const timezone = await resolveTenantTimezone(access);
   const range = request.range ?? "7d";
   const from = range === "all" ? null : new Date(Date.now() - (range === "7d" ? 7 : 30) * 86_400_000).toISOString();
   const page = Math.max(1, request.page ?? 1);
@@ -51,7 +55,7 @@ export async function getTaskOverview(access: CrmAccessGranted, request: TaskOve
       p_from: from, p_to: null, p_limit: PAGE_SIZE, p_offset: (page - 1) * PAGE_SIZE,
     }),
     db.rpc("count_tracked_tasks", { p_tenant_id: access.tenantId, p_owner_user_id: ownerFilter, p_from: from, p_to: null }),
-    isOwner ? listAssignableMembers(access.tenantId) : Promise.resolve([] as AssignableMember[]),
+    !isOwner ? Promise.resolve([] as AssignableMember[]) : request.withMembers === false ? Promise.resolve(null) : listAssignableMembers(access.tenantId),
   ]);
   if (list.error || counts.error) throw new AppError("Tasks could not be loaded.", { status: 500, code: "TASKS_QUERY_FAILED" });
 

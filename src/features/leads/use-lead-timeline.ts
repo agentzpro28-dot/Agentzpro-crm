@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { goToLogin } from "@/features/dashboard/navigation";
 import type { TimelineFilter } from "@/features/leads/lead-options";
 import { readError } from "@/features/leads/use-lead-filters";
+import { openLiveStream, type LiveStream } from "@/lib/live-stream";
 import type { LeadActivityItem, LeadActivityPage } from "@/lib/server/lead-timeline-service";
 
 const ACTIVITY_DEBOUNCE_MS = 500;
@@ -106,7 +107,7 @@ export function useLeadTimeline(leadId: string, filter: TimelineFilter) {
   useEffect(() => { refreshRef.current = refresh; }, [refresh]);
 
   useEffect(() => {
-    let source: EventSource | null = null;
+    let source: LiveStream | null = null;
     let debounce: ReturnType<typeof setTimeout> | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
     let missedWhileDown = false;
@@ -119,7 +120,7 @@ export function useLeadTimeline(leadId: string, filter: TimelineFilter) {
     const openStream = () => {
       closeStream();
       if (typeof EventSource === "undefined") { startPolling(); return; }
-      const next = new EventSource("/api/dashboard/stream");
+      const next = openLiveStream();
       source = next;
       next.addEventListener("ready", () => {
         stopPolling();

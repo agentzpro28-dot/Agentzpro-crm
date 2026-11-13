@@ -42,7 +42,9 @@ export function FacebookReconnectBanner() {
     if (!force && Date.now() - lastCheckedAt.current < RECHECK_INTERVAL_MS) return;
     lastCheckedAt.current = Date.now();
     const request = ++latestRequest.current;
-    void getConnectionOverview()
+    // fresh: the banner keeps its own re-check rules above; it only joins a check another part of the page is
+    // already running, never reuses an older stored answer.
+    void getConnectionOverview({ fresh: true })
       .then((next) => { if (request === latestRequest.current) setOverview(next); })
       // Best-effort: a failed check leaves the last known state and never blocks the page.
       .catch(() => {});

@@ -9,13 +9,16 @@ const querySchema = z.object({
   member: z.string().uuid().optional(),
   range: z.enum(DONE_RANGES).optional(),
   page: z.coerce.number().int().positive().max(1000).optional(),
+  // "0": a refresh of a list already shown; the owner's member list is not read again.
+  members: z.literal("0").optional(),
 });
 
 export async function GET(request: Request) {
   try {
     const params = querySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
     if (!params.success) throw new AppError("Request data is invalid.", { status: 400, code: "INVALID_REQUEST" });
-    return createSuccessResponse(await getTaskOverview(await requireCrmAccess(), params.data));
+    const { members, ...overviewRequest } = params.data;
+    return createSuccessResponse(await getTaskOverview(await requireCrmAccess(), { ...overviewRequest, withMembers: members !== "0" }));
   } catch (error) {
     return createErrorResponse(error, request);
   }
