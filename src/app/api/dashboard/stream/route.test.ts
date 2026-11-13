@@ -60,6 +60,20 @@ describe("GET /api/dashboard/stream", () => {
     await reader.cancel().catch(() => {});
   });
 
+  it("sends ready before the state a late joiner is told at once, so a degraded channel is not cancelled by ready", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-late" });
+    // The relay tells a stream joining an already-degraded channel so, synchronously, while it subscribes.
+    mocks.subscribe.mockImplementation((_tenant: string, listener: (event: "degraded") => void) => { listener("degraded"); return vi.fn(); });
+    const abort = new AbortController();
+    const response = await GET(new Request("http://localhost/api/dashboard/stream", { signal: abort.signal }));
+    const reader = response.body!.getReader();
+    const received = await readUntil(reader, '"state":"degraded"');
+    expect(received).toContain("event: ready");
+    expect(received.indexOf("event: ready")).toBeLessThan(received.indexOf('event: status\ndata: {"state":"degraded"}'));
+    abort.abort();
+    await reader.cancel().catch(() => {});
+  });
+
   it("forwards an update's newest saved time with its change event, and nothing else", async () => {
     let emit: (event: "change", payload?: { newestSavedUs?: string; leadId?: string }) => void = () => {};
     mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-update" });
