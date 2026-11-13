@@ -21,6 +21,9 @@ export const LEAD_STATUSES = [
 
 export const LEAD_LABELS = ["Hot", "Warm", "Cold", "Not Interested"] as const;
 
+/** The most leads one bulk delete takes: the selection is cleared on every load, so it never exceeds one page (100 rows). */
+export const MAX_BULK_DELETE_LEADS = 100;
+
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 export type LeadLabel = (typeof LEAD_LABELS)[number];
 

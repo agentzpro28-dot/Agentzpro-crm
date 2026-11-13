@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, queryLeads, resolveTenantTimezone, updateLeadTriage } from "@/lib/server/lead-query-service";
+import { countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, deleteLeads, queryLeads, resolveTenantTimezone, updateLeadTriage } from "@/lib/server/lead-query-service";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
@@ -547,5 +547,46 @@ describe("the company timezone of a signed-in request", () => {
     await expect(resolveTenantTimezone(context)).resolves.toBe("Asia/Dubai");
     expect(mocks.from).toHaveBeenCalledWith("tenants");
     expect(timezone.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+  });
+});
+
+describe("bulk lead delete", () => {
+  const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"];
+
+  it("deletes the whole selection with one tenant-scoped statement", async () => {
+    const leads = builder({ data: ids.map((id) => ({ id })), error: null });
+    mocks.from.mockImplementation(() => leads);
+    await expect(deleteLeads(context, [...ids, ids[0]])).resolves.toEqual({ deletedIds: ids });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(leads.delete).toHaveBeenCalledTimes(1);
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.in).toHaveBeenCalledWith("id", ids);
+  });
+
+  it("reports a lead that was not this tenant's as not found, after deleting the rest", async () => {
+    mocks.from.mockImplementation(() => builder({ data: [{ id: ids[0] }, { id: ids[2] }], error: null }));
+    await expect(deleteLeads(context, ids)).rejects.toMatchObject({ status: 404, code: "LEAD_NOT_FOUND", details: { deletedIds: [ids[0], ids[2]] } });
+  });
+
+  it("when a referenced lead blocks the statement, deletes the others one by one and reports the first failure", async () => {
+    const statement = builder({ data: null, error: { code: "23503" } });
+    const single = (id: string) => builder(id === ids[1] ? { data: null, error: { code: "23503" } } : { data: { id }, error: null });
+    let calls = 0;
+    const perLead: ReturnType<typeof builder>[] = [];
+    mocks.from.mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) return statement;
+      const next = single(ids[calls - 2]);
+      perLead.push(next);
+      return next;
+    });
+    await expect(deleteLeads(context, ids)).rejects.toMatchObject({ status: 409, code: "LEAD_DELETE_BLOCKED", details: { deletedIds: [ids[0], ids[2]] } });
+    expect(perLead).toHaveLength(3);
+    for (const query of perLead) expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+  });
+
+  it("deletes nothing and says so when the statement fails for another reason", async () => {
+    mocks.from.mockImplementation(() => builder({ data: null, error: { code: "57014" } }));
+    await expect(deleteLeads(context, ids)).rejects.toMatchObject({ status: 500, code: "LEAD_DELETE_FAILED", details: { deletedIds: [] } });
   });
 });

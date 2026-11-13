@@ -309,6 +309,46 @@ export async function deleteLead(context: TenantRequestContext, leadId: string):
   return { id: String(data.id) };
 }
 
+/**
+ * Permanently deletes the selected leads with one statement (one access check, one delete broadcast) instead of one
+ * request per lead, with the same outcome as deleting each lead on its own:
+ * - a lead another record still references (23503) blocks a whole statement, so then each lead is deleted on its own
+ *   and every other lead still goes;
+ * - a lead that is not this tenant's (or is already gone) is reported as LEAD_NOT_FOUND once the rest are gone.
+ * A failure carries details.deletedIds (lead ids only), so the page knows whether anything was deleted.
+ */
+export async function deleteLeads(context: TenantRequestContext, leadIds: string[]): Promise<{ deletedIds: string[] }> {
+  const ids = [...new Set(leadIds)];
+  const { data, error } = await getSupabaseAdminClient().from("lead_data")
+    .delete()
+    .eq("tenant_id", context.tenantId)
+    .in("id", ids)
+    .select("id");
+  if (error) {
+    if (error.code === "23503") return deleteLeadsOneByOne(context, ids);
+    throw new AppError("The lead could not be deleted.", { status: 500, code: "LEAD_DELETE_FAILED", details: { deletedIds: [] } });
+  }
+  const deleted = new Set((data ?? []).map((row) => String(row.id)));
+  const deletedIds = ids.filter((id) => deleted.has(id));
+  if (deletedIds.length < ids.length) throw new AppError("Lead not found for this tenant.", { status: 404, code: "LEAD_NOT_FOUND", details: { deletedIds } });
+  return { deletedIds };
+}
+
+/** The rare path: one lead at a time, in the selection's order; the first failure is the one reported. */
+async function deleteLeadsOneByOne(context: TenantRequestContext, ids: string[]): Promise<{ deletedIds: string[] }> {
+  const deletedIds: string[] = [];
+  let firstFailure: AppError | null = null;
+  for (const id of ids) {
+    try {
+      deletedIds.push((await deleteLead(context, id)).id);
+    } catch (error) {
+      firstFailure ??= error instanceof AppError ? error : new AppError("The lead could not be deleted.", { status: 500, code: "LEAD_DELETE_FAILED" });
+    }
+  }
+  if (firstFailure) throw new AppError(firstFailure.message, { status: firstFailure.status, code: firstFailure.code, details: { deletedIds } });
+  return { deletedIds };
+}
+
 /** One question of the Meta lead form and what the lead answered, as Meta sent it (key, not the question's display text). */
 export interface LeadFormAnswer { name: string; values: string[] }
 
