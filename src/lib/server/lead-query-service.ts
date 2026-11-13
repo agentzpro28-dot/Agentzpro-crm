@@ -249,16 +249,17 @@ export async function getLeadFilterOptions(context: TenantRequestContext, isOwne
       .order("facebook_page_name");
     if (pagesError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
     const selectedPageId = pageRecordId && (pages ?? []).some((page) => page.id === pageRecordId) ? pageRecordId : undefined;
-    let adQuery = db.from("lead_data")
-      .select("ad_id,ad_name,lead_created_time")
-      .eq("tenant_id", context.tenantId)
-      .not("ad_id", "is", null)
-      .order("lead_created_time", { ascending: false })
-      .limit(500);
-    if (selectedPageId) adQuery = adQuery.eq("facebook_page_record_id", selectedPageId);
-    const { data: leads, error: adsError } = await adQuery;
+    // Every ad with a lead (on that Page, when one is picked), newest first, each with its newest lead's ad name. The
+    // database function (migration 20261113122000) steps through the ad index, so no ad drops out of the filter
+    // because its leads are older than the newest 500, and no lead rows are sent just to build the list.
+    // Ordered here, before the API's row cap, so a company with more ads than the cap keeps its most recent ones.
+    const { data: ads, error: adsError } = await db.rpc("list_lead_filter_ads", selectedPageId
+      ? { p_tenant_id: context.tenantId, p_page_record_id: selectedPageId }
+      : { p_tenant_id: context.tenantId })
+      .order("newest_lead_at", { ascending: false })
+      .order("ad_id");
     if (adsError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
-    return { pages, leads };
+    return { pages, ads: (Array.isArray(ads) ? ads : []) as { ad_id?: unknown; ad_name?: unknown }[] };
   })();
   const [pagesAndAds, campaignsLookup, assigneesLookup] = await Promise.allSettled([
     pagesThenAds,
@@ -268,7 +269,7 @@ export async function getLeadFilterOptions(context: TenantRequestContext, isOwne
   if (pagesAndAds.status === "rejected") throw pagesAndAds.reason;
   if (campaignsLookup.status === "rejected") throw campaignsLookup.reason;
   if (assigneesLookup.status === "rejected") throw assigneesLookup.reason;
-  const { pages, leads } = pagesAndAds.value;
+  const { pages, ads: adRows } = pagesAndAds.value;
   const assignees = assigneesLookup.value;
   // Google Ads campaigns are isolated: if only their lookup fails, Page, Ad and Assignee still load for every company
   // (most use Facebook only) and the Campaign filter reports it, instead of the whole filter bar failing.
@@ -281,12 +282,13 @@ export async function getLeadFilterOptions(context: TenantRequestContext, isOwne
     const { id, name } = (item ?? {}) as { id?: unknown; name?: unknown };
     return typeof id === "string" && GOOGLE_CAMPAIGN_ID_PATTERN.test(id) && typeof name === "string" ? [{ id, name: name.trim() || `Campaign ${id}` }] : [];
   });
+  // Rows arrive newest lead first, so the first ad is the one the newest lead came from (the default, as before).
   const ads = new Map<string, { id: string; name: string | null }>();
-  for (const lead of leads ?? []) {
-    if (typeof lead.ad_id === "string" && !ads.has(lead.ad_id)) ads.set(lead.ad_id, { id: lead.ad_id, name: asNullableString(lead.ad_name) });
+  for (const row of adRows) {
+    if (typeof row.ad_id === "string" && !ads.has(row.ad_id)) ads.set(row.ad_id, { id: row.ad_id, name: asNullableString(row.ad_name) });
   }
   const values = [...ads.values()].sort((left, right) => (left.name ?? left.id).localeCompare(right.name ?? right.id));
-  return { pages: (pages ?? []).map((page) => ({ id: page.id, name: page.facebook_page_name })), ads: values, defaultAdId: leads?.[0]?.ad_id ?? null, campaigns, hasUnattributedCampaign: campaignResult.hasUnattributed === true, campaignsUnavailable: Boolean(campaignsError), assignees, isOwner };
+  return { pages: (pages ?? []).map((page) => ({ id: page.id, name: page.facebook_page_name })), ads: values, defaultAdId: ads.keys().next().value ?? null, campaigns, hasUnattributedCampaign: campaignResult.hasUnattributed === true, campaignsUnavailable: Boolean(campaignsError), assignees, isOwner };
 }
 
 /**

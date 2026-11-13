@@ -15,6 +15,13 @@ function builder(result: { data: unknown; error: unknown; count?: number }) {
   return Object.assign(query, { then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve(result)) });
 }
 
+/** list_lead_filter_ads is read like a table (ordered before the API row cap); list_google_lead_campaigns is awaited. */
+function stubFilterRpcs(campaigns: { data: unknown; error: unknown }, ads: { data: unknown; error: unknown } = { data: [], error: null }) {
+  const adsQuery = builder(ads);
+  mocks.rpc.mockImplementation((name: string) => name === "list_lead_filter_ads" ? adsQuery : Promise.resolve(campaigns));
+  return adsQuery;
+}
+
 const context = { tenantId: "tenant-a", userId: "user-a" };
 /** The first read of a CSV download. */
 const EXPORT_PAGE = { offset: 0, limit: 1000, savedBefore: "2026-11-13T09:00:00.123456+00:00" };
@@ -46,15 +53,39 @@ describe("tenant-scoped lead query contracts", () => {
 
   it("returns distinct ads by ID, preserving duplicate display names and Page scope", async () => {
     const pages = builder({ data: [{ id: "page-a", facebook_page_name: "Page A" }], error: null });
-    const leads = builder({ data: [
-      { ad_id: "ad-1", ad_name: "Same Name", lead_created_time: "2026-09-09T02:00:00Z" },
-      { ad_id: "ad-2", ad_name: "Same Name", lead_created_time: "2026-09-09T01:00:00Z" },
+    mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages : builder({ data: [], error: null }));
+    const ads = stubFilterRpcs({ data: { campaigns: [], hasUnattributed: false }, error: null }, { data: [
+      { ad_id: "ad-1", ad_name: "Same Name", newest_lead_at: "2026-09-09T02:00:00+00:00" },
+      { ad_id: "ad-2", ad_name: "Same Name", newest_lead_at: "2026-09-09T01:00:00+00:00" },
     ], error: null });
-    mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages : leads);
-    mocks.rpc.mockResolvedValue({ data: { campaigns: [], hasUnattributed: false }, error: null });
     const result = await getLeadFilterOptions(context, true, "page-a");
     expect(result.ads).toEqual([{ id: "ad-1", name: "Same Name" }, { id: "ad-2", name: "Same Name" }]);
-    expect(leads.eq).toHaveBeenCalledWith("facebook_page_record_id", "page-a");
+    expect(mocks.rpc).toHaveBeenCalledWith("list_lead_filter_ads", { p_tenant_id: "tenant-a", p_page_record_id: "page-a" });
+    expect(ads.order).toHaveBeenNthCalledWith(1, "newest_lead_at", { ascending: false });
+  });
+
+  it("lists ads from the database function (no lead rows read), named and defaulted by each ad's newest lead", async () => {
+    const pages = builder({ data: [], error: null });
+    const leads = builder({ data: [], error: null });
+    mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages : leads);
+    stubFilterRpcs({ data: { campaigns: [], hasUnattributed: false }, error: null }, { data: [
+      { ad_id: "ad-new", ad_name: null, newest_lead_at: "2026-11-13T09:00:00+00:00" },
+      { ad_id: "ad-old", ad_name: "Old Villa", newest_lead_at: "2025-01-01T00:00:00+00:00" },
+    ], error: null });
+    const result = await getLeadFilterOptions(context, true);
+    expect(result.ads).toEqual([{ id: "ad-new", name: null }, { id: "ad-old", name: "Old Villa" }]);
+    expect(result.defaultAdId).toBe("ad-new");
+    expect(mocks.rpc).toHaveBeenCalledWith("list_lead_filter_ads", { p_tenant_id: "tenant-a" });
+    expect(mocks.from).not.toHaveBeenCalledWith("lead_data");
+  });
+
+  it("ignores a Page that is not one of the tenant's active Pages, and fails the filters when the ad list fails", async () => {
+    mocks.from.mockImplementation(() => builder({ data: [{ id: "page-a", facebook_page_name: "Page A" }], error: null }));
+    stubFilterRpcs({ data: { campaigns: [], hasUnattributed: false }, error: null });
+    await getLeadFilterOptions(context, true, "page-of-another-tenant");
+    expect(mocks.rpc).toHaveBeenCalledWith("list_lead_filter_ads", { p_tenant_id: "tenant-a" });
+    stubFilterRpcs({ data: { campaigns: [], hasUnattributed: false }, error: null }, { data: null, error: { code: "57014" } });
+    await expect(getLeadFilterOptions(context, true)).rejects.toMatchObject({ status: 500, code: "LEAD_FILTERS_FAILED" });
   });
 
   it("export mode reads one download page (not the visible page) of leads saved before the download, with Ad Name/ID fields", async () => {
@@ -188,7 +219,7 @@ describe("Google Ads Campaign filter", () => {
 
   it("offers this tenant's campaigns from list_google_lead_campaigns, and Unattributed only when it exists", async () => {
     mocks.from.mockImplementation(() => builder({ data: [], error: null }));
-    mocks.rpc.mockResolvedValue({ data: { campaigns: [{ id: "111", name: "Chennai Villas" }, { id: 7, name: "bad" }, null], hasUnattributed: true }, error: null });
+    stubFilterRpcs({ data: { campaigns: [{ id: "111", name: "Chennai Villas" }, { id: 7, name: "bad" }, null], hasUnattributed: true }, error: null });
     const options = await getLeadFilterOptions(context, true);
     expect(mocks.rpc).toHaveBeenCalledWith("list_google_lead_campaigns", { p_tenant_id: "tenant-a" });
     expect(options.campaigns).toEqual([{ id: "111", name: "Chennai Villas" }]);
@@ -197,9 +228,8 @@ describe("Google Ads Campaign filter", () => {
 
   it("keeps Page, Ad and Assignee when only the campaign lookup fails, and reports the campaigns as unavailable", async () => {
     const pages = builder({ data: [{ id: "page-a", facebook_page_name: "Page A" }], error: null });
-    const leads = builder({ data: [{ ad_id: "ad-1", ad_name: "Villa", lead_created_time: "2026-09-09T02:00:00Z" }], error: null });
-    mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages : leads);
-    mocks.rpc.mockResolvedValue({ data: null, error: { code: "PGRST202", message: "relation secret detail" } });
+    mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages : builder({ data: [], error: null }));
+    stubFilterRpcs({ data: null, error: { code: "PGRST202", message: "relation secret detail" } }, { data: [{ ad_id: "ad-1", ad_name: "Villa", newest_lead_at: "2026-09-09T02:00:00+00:00" }], error: null });
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const options = await getLeadFilterOptions(context, true);
     expect(options).toMatchObject({ pages: [{ id: "page-a", name: "Page A" }], ads: [{ id: "ad-1", name: "Villa" }], campaigns: [], hasUnattributedCampaign: false, campaignsUnavailable: true, isOwner: true });
@@ -210,13 +240,13 @@ describe("Google Ads Campaign filter", () => {
 
   it("offers only campaign ids the lead routes accept, and names a blank-named campaign by its id", async () => {
     mocks.from.mockImplementation(() => builder({ data: [], error: null }));
-    mocks.rpc.mockResolvedValue({ data: { campaigns: [{ id: "", name: "Empty id" }, { id: "abc", name: "Letters" }, { id: "customers/1/campaigns/2", name: "Path" }, { id: " 123", name: "Space" }, { id: "1".repeat(31), name: "Too long" }, { id: "456", name: "  " }, { id: "111", name: "Chennai Villas" }], hasUnattributed: false }, error: null });
+    stubFilterRpcs({ data: { campaigns: [{ id: "", name: "Empty id" }, { id: "abc", name: "Letters" }, { id: "customers/1/campaigns/2", name: "Path" }, { id: " 123", name: "Space" }, { id: "1".repeat(31), name: "Too long" }, { id: "456", name: "  " }, { id: "111", name: "Chennai Villas" }], hasUnattributed: false }, error: null });
     expect((await getLeadFilterOptions(context, true)).campaigns).toEqual([{ id: "456", name: "Campaign 456" }, { id: "111", name: "Chennai Villas" }]);
   });
 
   it("reports the campaigns as available when the lookup works", async () => {
     mocks.from.mockImplementation(() => builder({ data: [], error: null }));
-    mocks.rpc.mockResolvedValue({ data: { campaigns: [], hasUnattributed: false }, error: null });
+    stubFilterRpcs({ data: { campaigns: [], hasUnattributed: false }, error: null });
     expect((await getLeadFilterOptions(context, true)).campaignsUnavailable).toBe(false);
   });
 });
@@ -390,7 +420,7 @@ describe("lead assignment in the leads list", () => {
     const memberships = builder({ data: [{ user_id: PRIYA }], error: null });
     const profiles = builder({ data: [{ user_id: PRIYA, full_name: "Priya" }], error: null });
     mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages : table === "tenant_memberships" ? memberships : table === "profiles" ? profiles : leads);
-    mocks.rpc.mockResolvedValue({ data: { campaigns: [], hasUnattributed: false }, error: null });
+    stubFilterRpcs({ data: { campaigns: [], hasUnattributed: false }, error: null });
     const options = await getLeadFilterOptions(context, false);
     expect(options.assignees).toEqual([{ userId: PRIYA, fullName: "Priya" }]);
     expect(options.isOwner).toBe(false);
@@ -609,12 +639,12 @@ describe("independent reads start together", () => {
     const pages = held({ data: [], error: null });
     const other = builder({ data: [], error: null });
     mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages.query : other);
-    mocks.rpc.mockResolvedValue({ data: { campaigns: [], hasUnattributed: false }, error: null });
+    stubFilterRpcs({ data: { campaigns: [], hasUnattributed: false }, error: null });
     const options = getLeadFilterOptions(context, true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mocks.rpc).toHaveBeenCalledWith("list_google_lead_campaigns", { p_tenant_id: "tenant-a" });
     expect(mocks.from).toHaveBeenCalledWith("tenant_memberships");
-    expect(mocks.from).not.toHaveBeenCalledWith("lead_data");
+    expect(mocks.rpc).not.toHaveBeenCalledWith("list_lead_filter_ads", expect.anything());
     pages.release();
     await expect(options).resolves.toMatchObject({ pages: [], ads: [], campaigns: [] });
   });
