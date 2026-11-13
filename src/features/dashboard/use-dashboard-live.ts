@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DashboardStats } from "@/lib/server/dashboard-service";
 import { goToLogin, reloadPage } from "@/features/dashboard/navigation";
 import { readError } from "@/features/leads/use-lead-filters";
+import { openLiveStream, type LiveStream } from "@/lib/live-stream";
 
 export type LiveState = "connecting" | "live" | "reconnecting" | "polling";
 
@@ -90,7 +91,7 @@ export function useDashboardStats(filterBody: Record<string, unknown>) {
 
   // Live updates.
   useEffect(() => {
-    let source: EventSource | null = null;
+    let source: LiveStream | null = null;
     let debounce: ReturnType<typeof setTimeout> | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -112,7 +113,7 @@ export function useDashboardStats(filterBody: Record<string, unknown>) {
     const openStream = () => {
       closeStream();
       clearTimeout(retry);
-      const next = new EventSource("/api/dashboard/stream");
+      const next = openLiveStream();
       source = next;
       next.addEventListener("ready", (event) => {
         const data = JSON.parse((event as MessageEvent<string>).data) as { tenantId: string };
