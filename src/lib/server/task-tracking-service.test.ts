@@ -67,3 +67,19 @@ describe("getTaskOverview", () => {
     await expect(getTaskOverview(OWNER, { bucket: "today" })).rejects.toMatchObject({ status: 500, code: "TASKS_QUERY_FAILED" });
   });
 });
+
+describe("the owner's member list on a refresh", () => {
+  it("is read on a normal load and skipped (null) on a refresh that keeps the one shown", async () => {
+    await expect(getTaskOverview(OWNER, { bucket: "today" })).resolves.toMatchObject({ members: [{ userId: "emp-1", fullName: "Asha" }] });
+    expect(mocks.members).toHaveBeenCalledTimes(1);
+    const refresh = await getTaskOverview(OWNER, { bucket: "today", withMembers: false });
+    expect(refresh.members).toBeNull();
+    expect(mocks.members).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays [] for an employee either way, who never gets a member list", async () => {
+    await expect(getTaskOverview(EMPLOYEE, { bucket: "today", withMembers: false })).resolves.toMatchObject({ members: [] });
+    await expect(getTaskOverview(EMPLOYEE, { bucket: "today" })).resolves.toMatchObject({ members: [] });
+    expect(mocks.members).not.toHaveBeenCalled();
+  });
+});

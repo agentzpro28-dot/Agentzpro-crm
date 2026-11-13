@@ -113,3 +113,30 @@ describe("TasksPageClient refresh", () => {
     expect(taskLoads()).toBe(1);
   });
 });
+
+describe("TasksPageClient member list", () => {
+  const owner = (members: unknown) => new Response(JSON.stringify({
+    items: [], counts: { overdue: 0, today: 0, upcoming: 0, done: 0, doneOnTime: 0 },
+    timezone: "Asia/Kolkata", isOwner: true, members, page: 1, pageSize: 50,
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  const taskUrls = () => fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.startsWith("/api/tasks?"));
+
+  it("reads it on open and when the tab comes back, skips it on refreshes, and keeps showing it", async () => {
+    fetchMock.mockImplementation(async (url: string) => owner(url.includes("members=0") ? null : [{ userId: "emp-1", fullName: "Asha" }]));
+    const { getByRole } = render(<TasksPageClient />);
+    await wait(0);
+    expect(taskUrls()[0]).not.toContain("members=0");
+    await wait(30_000);
+    expect(taskUrls()[1]).toContain("members=0");
+    tasksChanged();
+    await wait(0);
+    expect(taskUrls()[2]).toContain("members=0");
+    expect(getByRole("option", { name: "Asha" })).toBeInTheDocument();
+    await wait(1_000);
+    setHidden(true);
+    setHidden(false);
+    tasksChanged();
+    await wait(0);
+    expect(taskUrls()[3]).not.toContain("members=0");
+  });
+});
