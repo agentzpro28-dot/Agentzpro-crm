@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, CalendarCheck, ClipboardList, Link2 } from "lucide-react";
+import { useLayoutEffect } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { CompanySwitcher } from "@/components/company-switcher";
 import { FacebookReconnectBanner } from "@/components/facebook-reconnect-banner";
 import { TaskAlertsProvider } from "@/components/task-bell";
 import { SidebarCollapseButton, SidebarExpandButton } from "@/components/sidebar-toggle";
 import { UserMenu } from "@/components/user-menu";
+import { clearConnectionChecks } from "@/services/crm-api-client";
 
 const navigation = [
   { href: "/leads", label: "Leads", icon: ClipboardList },
@@ -25,6 +27,12 @@ export interface CrmShellProps {
 
 export function CrmShell({ children, fullName, tenantName }: Readonly<CrmShellProps>) {
   const pathname = usePathname();
+  // The shared connection checks belong to the session this shell shows: start empty and forget them when the shell
+  // goes, since login, logout and idle logout all navigate in-page. A layout effect, so it runs before any check starts.
+  useLayoutEffect(() => {
+    clearConnectionChecks();
+    return clearConnectionChecks;
+  }, []);
 
   return (
     <TaskAlertsProvider>

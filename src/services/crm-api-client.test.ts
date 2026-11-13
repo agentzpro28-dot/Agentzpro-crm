@@ -72,6 +72,17 @@ describe("shared connection checks", () => {
     expect(calls("/api/integrations/custom-webhook")).toBe(change.length + 1);
   });
 
+  it("forgets stored and running checks when the session's shell clears them (logout, login)", async () => {
+    await Promise.all([client.getConnectionOverview(), client.getGoogleAdsOverview(), client.getCustomWebhookOverview()]);
+    const running = client.getConnectionOverview({ fresh: true });
+    client.clearConnectionChecks();
+    await running;
+    await Promise.all([client.getConnectionOverview(), client.getGoogleAdsOverview(), client.getCustomWebhookOverview()]);
+    expect(calls("/api/meta/connection")).toBe(3);
+    expect(calls("/api/integrations/google")).toBe(2);
+    expect(calls("/api/integrations/custom-webhook")).toBe(2);
+  });
+
   it("always reads the Connection cards' own views fresh", async () => {
     await client.getGoogleAdsOverview({ campaigns: true });
     await client.getGoogleAdsOverview({ campaigns: true });

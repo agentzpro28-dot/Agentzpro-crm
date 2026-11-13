@@ -57,12 +57,21 @@ function sharedConnectionCheck<T>(path: string, fresh: boolean): Promise<T> {
   return entry.promise;
 }
 
+/**
+ * Forgets every shared connection check. The checks belong to one signed-in session: the CRM shell calls this when it
+ * opens and when it closes, because login, logout and idle logout all move in-page (the module stays loaded), and one
+ * person's company must never be shown to the next person in the same tab.
+ */
+export function clearConnectionChecks(): void {
+  connectionChecks.clear();
+}
+
 /** A request that changes a connection: afterwards no stored connection check may be reused. */
 async function changeConnection<T>(path: string, init: RequestInit): Promise<T> {
   try {
     return await request<T>(path, init);
   } finally {
-    connectionChecks.clear();
+    clearConnectionChecks();
   }
 }
 
