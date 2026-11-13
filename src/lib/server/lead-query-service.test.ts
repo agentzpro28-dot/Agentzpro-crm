@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, queryLeads, updateLeadTriage } from "@/lib/server/lead-query-service";
+import { countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, queryLeads, resolveTenantTimezone, updateLeadTriage } from "@/lib/server/lead-query-service";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
@@ -522,5 +522,30 @@ describe("webhook leads", () => {
     expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
     expect(leads.eq).toHaveBeenCalledWith("lead_platform", "custom_webhook");
     expect(leads.eq).not.toHaveBeenCalledWith("lead_source", "custom_webhook");
+  });
+});
+
+describe("the company timezone of a signed-in request", () => {
+  it("uses the timezone the login check already read, with no second read of the company row", async () => {
+    const leads = builder({ data: [], error: null, count: 0 });
+    mocks.from.mockImplementation(() => leads);
+    await expect(resolveTenantTimezone({ ...context, timezone: "Asia/Kolkata" })).resolves.toBe("Asia/Kolkata");
+    const result = await queryLeads({ ...context, timezone: "Asia/Kolkata" }, {});
+    expect(result.timezone).toBe("Asia/Kolkata");
+    expect(mocks.from).not.toHaveBeenCalledWith("tenants");
+  });
+
+  it("refuses a missing or placeholder timezone with the same 503 as the database read", async () => {
+    await expect(resolveTenantTimezone({ ...context, timezone: null })).rejects.toMatchObject({ status: 503, code: "TENANT_TIMEZONE_UNAVAILABLE" });
+    await expect(resolveTenantTimezone({ ...context, timezone: "UTC" })).rejects.toMatchObject({ status: 503, code: "TENANT_TIMEZONE_UNAVAILABLE" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("reads it from the database for a context that does not carry it", async () => {
+    const timezone = builder({ data: { timezone: "Asia/Dubai" }, error: null });
+    mocks.from.mockImplementation(() => timezone);
+    await expect(resolveTenantTimezone(context)).resolves.toBe("Asia/Dubai");
+    expect(mocks.from).toHaveBeenCalledWith("tenants");
+    expect(timezone.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
   });
 });

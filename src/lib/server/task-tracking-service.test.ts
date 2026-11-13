@@ -5,7 +5,7 @@ import { getTaskOverview } from "@/lib/server/task-tracking-service";
 const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), members: vi.fn(), timezone: vi.fn() }));
 vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 vi.mock("@/lib/server/lead-assignment-service", () => ({ listAssignableMembers: mocks.members }));
-vi.mock("@/lib/server/lead-query-service", () => ({ getTenantTimezone: mocks.timezone }));
+vi.mock("@/lib/server/lead-query-service", () => ({ resolveTenantTimezone: mocks.timezone }));
 
 const OWNER = { tenantId: "tenant-a", userId: "owner-1", membershipRole: "owner" } as never;
 const EMPLOYEE = { tenantId: "tenant-a", userId: "emp-1", membershipRole: "member" } as never;

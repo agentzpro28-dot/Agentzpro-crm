@@ -55,7 +55,7 @@ interface LeadFilterBuilder<Q> {
 }
 
 export async function queryLeads(context: TenantRequestContext, request: LeadSearchRequest, exportAll = false): Promise<PaginatedLeadRows> {
-  const timezone = await getTenantTimezone(context.tenantId);
+  const timezone = await resolveTenantTimezone(context);
   const page = Math.max(1, request.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, request.pageSize ?? 25));
   let query = getSupabaseAdminClient().from("lead_data")
@@ -99,7 +99,7 @@ export async function getLeadsCursor(tenantId: string): Promise<string | null> {
  * last load, so every row counts.
  */
 export async function countNewLeadsOnFirstPage(context: TenantRequestContext, request: LeadSearchRequest, since: string | null, pageSize: number): Promise<number> {
-  const timezone = await getTenantTimezone(context.tenantId);
+  const timezone = await resolveTenantTimezone(context);
   const size = Math.min(100, Math.max(1, pageSize));
   let page = getSupabaseAdminClient().from("lead_data").select("id").eq("tenant_id", context.tenantId);
   page = applyLeadOrder(applyLeadFilters(page, context, request, timezone), request);
@@ -344,10 +344,24 @@ function toFormAnswers(fieldData: unknown): LeadFormAnswer[] {
 function isContactField(name: string): boolean { return NAME_FIELD_KEYS.has(name) || EMAIL_FIELD_KEYS.has(name) || PHONE_FIELD_KEYS.has(name); }
 function asNullableString(value: unknown): string | null { return typeof value === "string" && value.trim() ? value : null; }
 
+function timezoneUnavailable(): AppError {
+  return new AppError("A verified tenant timezone is required before lead date filtering.", { status: 503, code: "TENANT_TIMEZONE_UNAVAILABLE" });
+}
+
 export async function getTenantTimezone(tenantId: string): Promise<string> {
   const { data, error } = await getSupabaseAdminClient().from("tenants").select("timezone").eq("tenant_id", tenantId).single();
-  if (error || !data || typeof data.timezone !== "string" || data.timezone === "UTC") throw new AppError("A verified tenant timezone is required before lead date filtering.", { status: 503, code: "TENANT_TIMEZONE_UNAVAILABLE" });
+  if (error || !data || typeof data.timezone !== "string" || data.timezone === "UTC") throw timezoneUnavailable();
   return data.timezone;
+}
+
+/**
+ * The company timezone for a signed-in request. The login check already read it (context.timezone), so here it is
+ * only validated, by the same rule as getTenantTimezone; a context that does not carry it is read from the database.
+ */
+export async function resolveTenantTimezone(context: { tenantId: string; timezone?: string | null }): Promise<string> {
+  if (context.timezone === undefined) return getTenantTimezone(context.tenantId);
+  if (typeof context.timezone !== "string" || context.timezone === "UTC") throw timezoneUnavailable();
+  return context.timezone;
 }
 export function resolveDateRange(request: LeadSearchRequest, timezone: string): { from: string; to: string } | null {
   let from = request.dateFrom; let to = request.dateTo;

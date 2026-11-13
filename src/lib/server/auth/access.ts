@@ -10,6 +10,11 @@ export interface CrmAccessGranted {
   tenantName: string;
   fullName: string;
   membershipRole: string;
+  /**
+   * The company timezone the login check already read (requireCrmAccess always sets it), so services need no second
+   * read. Not validated here: pages that never use dates must not fail on it; resolveTenantTimezone validates it.
+   */
+  timezone?: string | null;
 }
 
 /**
@@ -105,6 +110,7 @@ export async function requireCrmAccess(): Promise<CrmAccessGranted> {
     tenantName: state.tenantName,
     fullName: state.fullName,
     membershipRole: state.membershipRole,
+    timezone: state.timezone,
   };
 }
 

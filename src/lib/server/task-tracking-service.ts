@@ -3,7 +3,7 @@ import "server-only";
 import type { CrmAccessGranted } from "@/lib/server/auth/access";
 import { AppError } from "@/lib/server/app-error";
 import { listAssignableMembers, type AssignableMember } from "@/lib/server/lead-assignment-service";
-import { getTenantTimezone } from "@/lib/server/lead-query-service";
+import { resolveTenantTimezone } from "@/lib/server/lead-query-service";
 import { getSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 export const TASK_BUCKETS = ["overdue", "today", "upcoming", "done"] as const;
@@ -39,7 +39,7 @@ const PAGE_SIZE = 50;
 export async function getTaskOverview(access: CrmAccessGranted, request: TaskOverviewRequest): Promise<TaskOverview> {
   const isOwner = access.membershipRole === "owner";
   const ownerFilter = isOwner ? request.member ?? null : access.userId;
-  const timezone = await getTenantTimezone(access.tenantId);
+  const timezone = await resolveTenantTimezone(access);
   const range = request.range ?? "7d";
   const from = range === "all" ? null : new Date(Date.now() - (range === "7d" ? 7 : 30) * 86_400_000).toISOString();
   const page = Math.max(1, request.page ?? 1);

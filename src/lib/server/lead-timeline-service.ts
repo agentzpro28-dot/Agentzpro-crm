@@ -1,7 +1,7 @@
 import "server-only";
 
 import { AppError } from "@/lib/server/app-error";
-import { getTenantTimezone, updateLeadTriage } from "@/lib/server/lead-query-service";
+import { resolveTenantTimezone, updateLeadTriage } from "@/lib/server/lead-query-service";
 import { getSupabaseAdminClient } from "@/lib/server/supabase-admin";
 import type { TenantRequestContext } from "@/lib/server/tenant-context";
 import { TIMELINE_FILTER_TYPES, isTaskCreationLocked, type LeadActivityType, type LeadStatus, type TaskRepeatRule, type TimelineFilter } from "@/features/leads/lead-options";
@@ -244,7 +244,7 @@ export async function closeLeadTask(
  * fixed by moving it to a later time, never by back-dating.
  */
 async function futureDueAt(context: TenantRequestContext, due: TaskDue): Promise<string> {
-  const timezone = await getTenantTimezone(context.tenantId);
+  const timezone = await resolveTenantTimezone(context);
   const dueAt = zonedDateTime(due.dueDate, due.dueTime, timezone);
   if (dueAt.getTime() <= Date.now()) throw dueInPast();
   return dueAt.toISOString();

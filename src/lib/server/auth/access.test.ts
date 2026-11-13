@@ -9,6 +9,7 @@ const READY_BASE = {
   membershipRole: "owner",
   membershipStatus: "active",
   tenantStatus: "active",
+  timezone: "Asia/Kolkata" as string | null,
   currentPeriodEndsAt: null as string | null,
   isInternal: false,
 };
@@ -141,7 +142,7 @@ describe("requireCrmAccess", () => {
     await expect(requireCrmAccess()).rejects.toMatchObject({ status: 403, code: "CRM_ACCESS_DENIED" });
   });
 
-  it("returns the userId and tenantId for a valid, active session", async () => {
+  it("returns the userId and tenantId (and the timezone the login check read) for a valid, active session", async () => {
     vi.mocked(verifySession).mockResolvedValue({ userId: "user-1" });
     vi.mocked(resolveLoginState).mockResolvedValue({ ...READY_BASE, subscriptionStatus: "trialing", trialEndsAt: future(ONE_HOUR_MS) });
 
@@ -151,6 +152,7 @@ describe("requireCrmAccess", () => {
       tenantName: READY_BASE.tenantName,
       fullName: READY_BASE.fullName,
       membershipRole: READY_BASE.membershipRole,
+      timezone: "Asia/Kolkata",
     });
   });
 });

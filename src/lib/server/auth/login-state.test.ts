@@ -36,7 +36,7 @@ const USER_ID = "00000000-0000-0000-0000-000000000001";
 const TENANT_ID = "10000000-0000-0000-0000-000000000001";
 
 const TRIAL = { subscription_status: "trialing", trial_ends_at: "2026-09-17T00:00:00.000Z", current_period_ends_at: null };
-const TENANT_A = { tenant_name: "Tenant A", tenant_status: "active", tenants_subscriptions: TRIAL };
+const TENANT_A = { tenant_name: "Tenant A", tenant_status: "active", timezone: "Asia/Kolkata", tenants_subscriptions: TRIAL };
 const OWNER_MEMBERSHIP = { tenant_id: TENANT_ID, membership_role: "owner", membership_status: "active", tenants: TENANT_A };
 
 function setResponses(responses: Record<string, TableResponse>): void {
@@ -72,6 +72,7 @@ describe("resolveLoginState", () => {
       membershipRole: "owner",
       membershipStatus: "active",
       tenantStatus: "active",
+      timezone: "Asia/Kolkata",
       subscriptionStatus: "trialing",
       trialEndsAt: "2026-09-17T00:00:00.000Z",
       currentPeriodEndsAt: null,
@@ -92,7 +93,7 @@ describe("resolveLoginState", () => {
       { table: "profiles", filterColumn: "user_id", filterValue: USER_ID },
     ]);
     const membershipColumns = reads[0].columns;
-    expect(membershipColumns).toContain("tenants!tenant_memberships_tenant_id_fkey(");
+    expect(membershipColumns).toContain("tenants!tenant_memberships_tenant_id_fkey(tenant_name, tenant_status, timezone, ");
     expect(membershipColumns).toContain("tenants_subscriptions!tenants_subscriptions_tenant_id_fkey(");
     // Left embeds only: an inner embed would turn a missing tenant into "no company" instead of an integrity error.
     expect(membershipColumns).not.toContain("!inner");

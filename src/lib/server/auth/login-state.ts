@@ -21,6 +21,8 @@ export type LoginState =
       membershipRole: string;
       membershipStatus: string;
       tenantStatus: string;
+      /** The company clock as stored (null or the "UTC" placeholder until onboarding sets it); see resolveTenantTimezone. */
+      timezone: string | null;
       subscriptionStatus: string;
       trialEndsAt: string | null;
       currentPeriodEndsAt: string | null;
@@ -41,6 +43,7 @@ interface MembershipRow {
   tenants: {
     tenant_name: string;
     tenant_status: string;
+    timezone: string | null;
     tenants_subscriptions: {
       subscription_status: string;
       trial_ends_at: string | null;
@@ -57,7 +60,7 @@ interface MembershipRow {
  */
 const MEMBERSHIP_WITH_TENANT_SELECT =
   "tenant_id, membership_role, membership_status, " +
-  "tenants!tenant_memberships_tenant_id_fkey(tenant_name, tenant_status, " +
+  "tenants!tenant_memberships_tenant_id_fkey(tenant_name, tenant_status, timezone, " +
   "tenants_subscriptions!tenants_subscriptions_tenant_id_fkey(subscription_status, trial_ends_at, current_period_ends_at, is_internal))";
 
 /**
@@ -142,6 +145,7 @@ export async function resolveLoginState(userId: string): Promise<LoginState> {
     membershipRole: membership.membership_role,
     membershipStatus: membership.membership_status,
     tenantStatus: tenant.tenant_status,
+    timezone: tenant.timezone,
     subscriptionStatus: subscription.subscription_status,
     trialEndsAt: subscription.trial_ends_at,
     currentPeriodEndsAt: subscription.current_period_ends_at,
