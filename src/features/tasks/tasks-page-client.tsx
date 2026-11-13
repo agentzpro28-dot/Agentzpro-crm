@@ -16,8 +16,19 @@ const TABS: { bucket: TaskBucket; label: string }[] = [
   { bucket: "done", label: "Done" },
 ];
 const RANGES = [{ value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "all", label: "All time" }] as const;
-// A task slips from Today to Overdue as time passes, which produces no database event, so the list refetches.
+/**
+ * The list refetches this long after its last load. The live stream does not cover two things: a task slipping from
+ * Today to Overdue as time passes (no database event), and a task another member adds, moves or closes (lead_tasks
+ * sends no "change"). Only while the tab is visible: a hidden tab never polls, and the shell sends
+ * TASKS_CHANGED_EVENT the moment it comes back.
+ */
 const REFRESH_MS = 30_000;
+/**
+ * Live signals can come in bursts (a bulk delete or assign). The first one refetches at once; any that land in the
+ * next CHANGE_COOLDOWN_MS share one more refetch at its end, which also picks up a write that landed while the
+ * first refetch was already running.
+ */
+const CHANGE_COOLDOWN_MS = 750;
 
 /** "in 2 h", "15 min ago": how far the due time is from now. */
 export function relativeDue(dueAt: string, now = Date.now()): string {
@@ -51,17 +62,46 @@ export function TasksPageClient() {
     }
   }, [bucket, member, range]);
 
+  // Changes made elsewhere arrive on the shell's live stream (the bell re-dispatches them as TASKS_CHANGED_EVENT).
   useEffect(() => {
-    const first = setTimeout(() => void load(), 0);
-    const timer = setInterval(() => void load(), REFRESH_MS);
-    return () => { clearTimeout(first); clearInterval(timer); };
-  }, [load]);
+    let disposed = false;
+    let refresh: ReturnType<typeof setTimeout> | undefined;
+    let cooldown: ReturnType<typeof setTimeout> | undefined;
+    let pending = false;
 
-  // Task changes made elsewhere arrive on the shell's live stream (the bell re-dispatches them); refetch on one.
-  useEffect(() => {
-    const onChanged = () => void load();
+    const armRefresh = () => {
+      clearTimeout(refresh);
+      refresh = disposed || document.hidden ? undefined : setTimeout(run, REFRESH_MS);
+    };
+    function run() {
+      clearTimeout(refresh);
+      refresh = undefined;
+      void load().finally(() => { if (!disposed) armRefresh(); });
+    }
+    const endCooldown = () => {
+      if (!pending) { cooldown = undefined; return; }
+      pending = false;
+      run();
+      cooldown = setTimeout(endCooldown, CHANGE_COOLDOWN_MS);
+    };
+    const onChanged = () => {
+      if (cooldown) { pending = true; return; }
+      run();
+      cooldown = setTimeout(endCooldown, CHANGE_COOLDOWN_MS);
+    };
+    // Hidden: stop polling. Visible again: the shell's TASKS_CHANGED_EVENT refetches at once, so this only restarts
+    // the regular refresh (fetching here as well would load the list twice on every return).
+    const onVisibility = () => armRefresh();
+
+    const first = setTimeout(run, 0);
     window.addEventListener(TASKS_CHANGED_EVENT, onChanged);
-    return () => window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      disposed = true;
+      clearTimeout(first); clearTimeout(refresh); clearTimeout(cooldown);
+      window.removeEventListener(TASKS_CHANGED_EVENT, onChanged);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   const counts = data?.counts;
