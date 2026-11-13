@@ -590,3 +590,38 @@ describe("bulk lead delete", () => {
     await expect(deleteLeads(context, ids)).rejects.toMatchObject({ status: 500, code: "LEAD_DELETE_FAILED", details: { deletedIds: [] } });
   });
 });
+
+describe("independent reads start together", () => {
+  function held(result: { data: unknown; error: unknown; count?: number }) {
+    const query = builder(result);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((done) => { release = done; });
+    return { query: Object.assign(query, { then: (resolve: (value: unknown) => unknown) => gate.then(() => resolve(result)) }), release: () => release() };
+  }
+
+  it("loads the filter's campaigns and members while the Pages read is still running", async () => {
+    const pages = held({ data: [], error: null });
+    const other = builder({ data: [], error: null });
+    mocks.from.mockImplementation((table: string) => table === "facebook_pages" ? pages.query : other);
+    mocks.rpc.mockResolvedValue({ data: { campaigns: [], hasUnattributed: false }, error: null });
+    const options = getLeadFilterOptions(context, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.rpc).toHaveBeenCalledWith("list_google_lead_campaigns", { p_tenant_id: "tenant-a" });
+    expect(mocks.from).toHaveBeenCalledWith("tenant_memberships");
+    expect(mocks.from).not.toHaveBeenCalledWith("lead_data");
+    pages.release();
+    await expect(options).resolves.toMatchObject({ pages: [], ads: [], campaigns: [] });
+  });
+
+  it("reads the open-task flags while the assignee names are still loading", async () => {
+    const leads = builder({ data: [{ id: "lead-1", leadgen_id: "lg-1", lead_created_time: "2026-11-13T00:00:00Z", status: "New Lead", label: "Warm", assigned_user_id: "user-b" }], error: null, count: 1 });
+    const profiles = held({ data: [{ user_id: "user-b", full_name: "Member B" }], error: null });
+    const tasks = builder({ data: [], error: null });
+    mocks.from.mockImplementation((table: string) => table === "profiles" ? profiles.query : table === "lead_tasks" ? tasks : leads);
+    const result = queryLeads({ ...context, timezone: "Asia/Kolkata" }, {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.from).toHaveBeenCalledWith("lead_tasks");
+    profiles.release();
+    await expect(result).resolves.toMatchObject({ items: [{ id: "lead-1", assigneeName: "Member B", hasOpenTask: false }] });
+  });
+});

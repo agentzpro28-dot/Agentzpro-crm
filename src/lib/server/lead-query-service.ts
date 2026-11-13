@@ -67,8 +67,11 @@ export async function queryLeads(context: TenantRequestContext, request: LeadSea
   const { data, error, count } = await query;
   if (error) throw new AppError("Leads could not be loaded.", { status: 500, code: "LEAD_QUERY_FAILED" });
   const items = (data ?? []).map((lead) => toLeadRow(lead as Record<string, unknown>));
-  await attachAssigneeNames(items);
-  if (!exportAll) await attachOpenTaskFlags(context, items);
+  // Independent reads about the same rows (they fill different fields): load them together. allSettled, so when both
+  // fail the names error is still the one reported, as when they ran one after the other.
+  const [names, taskFlags] = await Promise.allSettled([attachAssigneeNames(items), exportAll ? Promise.resolve() : attachOpenTaskFlags(context, items)]);
+  if (names.status === "rejected") throw names.reason;
+  if (taskFlags.status === "rejected") throw taskFlags.reason;
   const total = exportAll ? items.length : count ?? 0;
   return { items, total, page: exportAll ? 1 : page, pageSize: exportAll ? items.length : pageSize, totalPages: exportAll ? 1 : Math.max(1, Math.ceil(total / pageSize)), timezone };
 }
@@ -222,25 +225,41 @@ export type LeadFilterOptions = {
 
 export async function getLeadFilterOptions(context: TenantRequestContext, isOwner: boolean, pageRecordId?: string): Promise<LeadFilterOptions> {
   const db = getSupabaseAdminClient();
-  const { data: pages, error: pagesError } = await db.from("facebook_pages")
-    .select("id,facebook_page_name")
-    .eq("tenant_id", context.tenantId)
-    .eq("connection_status", "active")
-    .order("facebook_page_name");
-  if (pagesError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
-  const selectedPageId = pageRecordId && (pages ?? []).some((page) => page.id === pageRecordId) ? pageRecordId : undefined;
-  let adQuery = db.from("lead_data")
-    .select("ad_id,ad_name,lead_created_time")
-    .eq("tenant_id", context.tenantId)
-    .not("ad_id", "is", null)
-    .order("lead_created_time", { ascending: false })
-    .limit(500);
-  if (selectedPageId) adQuery = adQuery.eq("facebook_page_record_id", selectedPageId);
-  const { data: leads, error: adsError } = await adQuery;
-  if (adsError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
+  // Pages then ads (the ads read is narrowed to a Page only once that Page is known to be active), while the campaigns
+  // and the members load at the same time. allSettled keeps the errors in the order they had when each waited for the
+  // one before: Pages, ads, campaigns, then members.
+  const pagesThenAds = (async () => {
+    const { data: pages, error: pagesError } = await db.from("facebook_pages")
+      .select("id,facebook_page_name")
+      .eq("tenant_id", context.tenantId)
+      .eq("connection_status", "active")
+      .order("facebook_page_name");
+    if (pagesError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
+    const selectedPageId = pageRecordId && (pages ?? []).some((page) => page.id === pageRecordId) ? pageRecordId : undefined;
+    let adQuery = db.from("lead_data")
+      .select("ad_id,ad_name,lead_created_time")
+      .eq("tenant_id", context.tenantId)
+      .not("ad_id", "is", null)
+      .order("lead_created_time", { ascending: false })
+      .limit(500);
+    if (selectedPageId) adQuery = adQuery.eq("facebook_page_record_id", selectedPageId);
+    const { data: leads, error: adsError } = await adQuery;
+    if (adsError) throw new AppError("Lead filters could not be loaded.", { status: 500, code: "LEAD_FILTERS_FAILED" });
+    return { pages, leads };
+  })();
+  const [pagesAndAds, campaignsLookup, assigneesLookup] = await Promise.allSettled([
+    pagesThenAds,
+    db.rpc("list_google_lead_campaigns", { p_tenant_id: context.tenantId }),
+    listAssignableMembers(context.tenantId),
+  ]);
+  if (pagesAndAds.status === "rejected") throw pagesAndAds.reason;
+  if (campaignsLookup.status === "rejected") throw campaignsLookup.reason;
+  if (assigneesLookup.status === "rejected") throw assigneesLookup.reason;
+  const { pages, leads } = pagesAndAds.value;
+  const assignees = assigneesLookup.value;
   // Google Ads campaigns are isolated: if only their lookup fails, Page, Ad and Assignee still load for every company
   // (most use Facebook only) and the Campaign filter reports it, instead of the whole filter bar failing.
-  const { data: campaignData, error: campaignsError } = await db.rpc("list_google_lead_campaigns", { p_tenant_id: context.tenantId });
+  const { data: campaignData, error: campaignsError } = campaignsLookup.value;
   if (campaignsError) console.error(JSON.stringify({ operation: "lead_filter_options", code: "GOOGLE_CAMPAIGNS_LOOKUP_FAILED", dbCode: campaignsError.code ?? null }));
   const campaignResult = (campaignsError ? {} : campaignData ?? {}) as { campaigns?: unknown; hasUnattributed?: unknown };
   // Only ids the lead routes accept are offered (any other id would be rejected the moment it was picked), and a blank
@@ -249,7 +268,6 @@ export async function getLeadFilterOptions(context: TenantRequestContext, isOwne
     const { id, name } = (item ?? {}) as { id?: unknown; name?: unknown };
     return typeof id === "string" && GOOGLE_CAMPAIGN_ID_PATTERN.test(id) && typeof name === "string" ? [{ id, name: name.trim() || `Campaign ${id}` }] : [];
   });
-  const assignees = await listAssignableMembers(context.tenantId);
   const ads = new Map<string, { id: string; name: string | null }>();
   for (const lead of leads ?? []) {
     if (typeof lead.ad_id === "string" && !ads.has(lead.ad_id)) ads.set(lead.ad_id, { id: lead.ad_id, name: asNullableString(lead.ad_name) });
