@@ -32,7 +32,8 @@ export function ConnectionPageClient() {
 
   useEffect(() => {
     let active = true;
-    void getConnectionOverview()
+    // The Integrations page always shows the server's current answer, never one shared from another page.
+    void getConnectionOverview({ fresh: true })
       .then((data) => { if (active) setOverview(data); })
       .catch((error: unknown) => { if (active) setMessage({ tone: "danger", text: getErrorMessage(error, "Connection details could not be loaded. Try again.") }); })
       .finally(() => { if (active) setIsLoading(false); });
