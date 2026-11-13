@@ -7,7 +7,7 @@ vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({
 
 function builder(result: { data: unknown; error: unknown; count?: number }) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const method of ["select", "eq", "is", "not", "or", "gt", "gte", "lt", "order", "range", "limit", "update", "delete", "in"]) {
+  for (const method of ["select", "eq", "is", "not", "or", "gt", "gte", "lt", "lte", "order", "range", "limit", "update", "delete", "in"]) {
     query[method] = vi.fn(() => query);
   }
   query.single = vi.fn(() => Promise.resolve(result));
@@ -16,6 +16,8 @@ function builder(result: { data: unknown; error: unknown; count?: number }) {
 }
 
 const context = { tenantId: "tenant-a", userId: "user-a" };
+/** The first read of a CSV download. */
+const EXPORT_PAGE = { offset: 0, limit: 1000, savedBefore: "2026-11-13T09:00:00.123456+00:00" };
 
 beforeEach(() => vi.resetAllMocks());
 
@@ -55,12 +57,16 @@ describe("tenant-scoped lead query contracts", () => {
     expect(leads.eq).toHaveBeenCalledWith("facebook_page_record_id", "page-a");
   });
 
-  it("export mode does not apply a visible-page range and carries Ad Name/ID fields", async () => {
+  it("export mode reads one download page (not the visible page) of leads saved before the download, with Ad Name/ID fields", async () => {
     const leads = builder({ data: [{ id: "lead-1", lead_name: "Client", lead_email: "client@example.com", lead_phone: "9999999999", ad_id: "ad-1", ad_name: "Campaign", lead_created_time: "2026-09-09T02:00:00Z", status: "New Lead", label: "Warm", facebook_pages: { facebook_page_name: "Page A" } }], error: null, count: 1 });
     const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
     mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
-    const result = await queryLeads(context, { pageRecordId: "page-a", adId: "ad-1" }, true);
-    expect(leads.range).not.toHaveBeenCalled();
+    const result = await queryLeads(context, { pageRecordId: "page-a", adId: "ad-1", page: 3, pageSize: 25 }, { ...EXPORT_PAGE, offset: 2000 });
+    expect(leads.range).toHaveBeenCalledTimes(1);
+    expect(leads.range).toHaveBeenCalledWith(2000, 2999);
+    expect(leads.lte).toHaveBeenCalledWith("created_at", EXPORT_PAGE.savedBefore);
+    // A download page needs no exact count (only the table's pages do).
+    expect(leads.select.mock.calls[0][1]).toBeUndefined();
     expect(result.items[0]).toMatchObject({ adId: "ad-1", adName: "Campaign", facebookPage: "Page A" });
   });
 
@@ -103,7 +109,7 @@ describe("tenant-scoped lead query contracts", () => {
     ], error: null, count: 2 });
     const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
     mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
-    const result = await queryLeads(context, {}, true);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
     expect(result.items[0]).toMatchObject({ source: "telecaller", leadgenId: "", facebookPage: "-", adName: "-", leadName: "Caller" });
     expect(result.items[1]).toMatchObject({ source: "facebook", leadgenId: "123", facebookPage: "Page A", adName: "Unattributed" });
   });
@@ -116,7 +122,7 @@ describe("tenant-scoped lead query contracts", () => {
     ], error: null, count: 2 });
     const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
     mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
-    const result = await queryLeads(context, {}, true);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
     expect(result.items[0]).toMatchObject({ source: "telecaller", leadgenId: "", facebookPage: "Facebook", adName: "Villa Ad", adId: null });
     expect(result.items[1]).toMatchObject({ source: "telecaller", facebookPage: "Google Ads", adName: "-", adId: null });
   });
@@ -130,7 +136,7 @@ describe("tenant-scoped lead query contracts", () => {
     ], error: null, count: 3 });
     const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
     mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
-    const result = await queryLeads(context, {}, true);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
     expect(result.items[0]).toMatchObject({ source: "google_ads", leadgenId: "g-1", facebookPage: "Google Ads", adName: "Google Ads · Campaign 111", adId: null });
     expect(result.items[1]).toMatchObject({ adName: "Chennai Villas" });
     expect(result.items[2]).toMatchObject({ adName: "Unattributed" });
@@ -308,7 +314,7 @@ describe("lead timeline hooks into the leads list", () => {
     const leads = builder({ data: [leadRow("lead-1")], error: null, count: 1 });
     const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
     mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
-    const result = await queryLeads(context, {}, true);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
     expect(mocks.from).not.toHaveBeenCalledWith("lead_tasks");
     expect(result.items[0].hasOpenTask).toBeUndefined();
   });
@@ -508,7 +514,7 @@ describe("webhook leads", () => {
     ], error: null, count: 2 });
     const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
     mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
-    const result = await queryLeads(context, {}, true);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
     expect(leads.select.mock.calls[0][0]).toContain("custom_lead_ref,custom_source_name");
     expect(result.items[0]).toMatchObject({ source: "custom_webhook", leadgenId: "lp-42", facebookPage: "Webhook", adName: "Landing Page", adId: null });
     expect(result.items[1]).toMatchObject({ source: "custom_webhook", leadgenId: "", facebookPage: "Webhook", adName: "-" });

@@ -85,7 +85,9 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
       // so a download can never disagree with the rows on screen.
       const response = await fetch("/api/leads/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(filters.filterBody()) });
       if (!response.ok) throw new Error(await readError(response, "Leads could not be exported."));
-      const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a");
+      // The file is streamed: a read that fails halfway ends it with an error, and nothing is saved.
+      const file = await response.blob().catch(() => { throw new Error("Leads could not be exported."); });
+      const url = URL.createObjectURL(file); const link = document.createElement("a");
       link.href = url; link.download = "agentzpro-leads.csv"; link.click(); URL.revokeObjectURL(url);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Leads could not be exported."); }
   }

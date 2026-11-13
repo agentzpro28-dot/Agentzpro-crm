@@ -54,16 +54,29 @@ interface LeadFilterBuilder<Q> {
   order(column: string, options: { ascending: boolean; nullsFirst?: boolean }): Q;
 }
 
-export async function queryLeads(context: TenantRequestContext, request: LeadSearchRequest, exportAll = false): Promise<PaginatedLeadRows> {
+/**
+ * One read of the CSV download: rows [offset, offset + limit) of the table's filters and order, of the leads saved at
+ * or before savedBefore (the company's newest lead when the download began, see getLeadsCursor), so a lead arriving
+ * mid-download cannot shift the pages. The download reads page after page until one comes back empty: a single read
+ * would silently stop at the API's "Max rows" cap.
+ */
+export interface LeadExportPage { offset: number; limit: number; savedBefore: string }
+
+export async function queryLeads(context: TenantRequestContext, request: LeadSearchRequest, exportPage?: LeadExportPage): Promise<PaginatedLeadRows> {
+  const exportAll = exportPage !== undefined;
   const timezone = await resolveTenantTimezone(context);
   const page = Math.max(1, request.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, request.pageSize ?? 25));
+  // The table needs the total for its pages; a download page does not, so it skips the exact count.
   let query = getSupabaseAdminClient().from("lead_data")
-    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", { count: "exact" })
+    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", exportAll ? undefined : { count: "exact" })
     .eq("tenant_id", context.tenantId);
+  if (exportPage) query = query.lte("created_at", exportPage.savedBefore);
   if (request.leadId) query = query.eq("id", request.leadId);
   query = applyLeadOrder(applyLeadFilters(query, context, request, timezone), request);
-  if (!exportAll) query = query.range((page - 1) * pageSize, page * pageSize - 1);
+  query = exportPage
+    ? query.range(exportPage.offset, exportPage.offset + exportPage.limit - 1)
+    : query.range((page - 1) * pageSize, page * pageSize - 1);
   const { data, error, count } = await query;
   if (error) throw new AppError("Leads could not be loaded.", { status: 500, code: "LEAD_QUERY_FAILED" });
   const items = (data ?? []).map((lead) => toLeadRow(lead as Record<string, unknown>));
