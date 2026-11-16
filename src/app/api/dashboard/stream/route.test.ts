@@ -150,4 +150,29 @@ describe("GET /api/dashboard/stream", () => {
     for (const [index, reader] of readers.entries()) { aborts[index].abort(); await reader.cancel().catch(() => {}); }
     await admitted.body!.cancel().catch(() => {});
   });
+
+  it.each([
+    { random: 0, retry: 1_000, lifetime: 250_000 },
+    { random: 0.5, retry: 3_000, lifetime: 265_000 },
+    { random: 0.9999999, retry: 5_000, lifetime: 280_000 },
+  ])("gives each stream a lifetime of 250–280 s and a reconnect delay of 1–5 s at random (random $random)", async ({ random, retry, lifetime }) => {
+    vi.useFakeTimers();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(random);
+    try {
+      const unsubscribe = vi.fn();
+      mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: `user-random-${random}` });
+      mocks.subscribe.mockReturnValue(unsubscribe);
+      const response = await GET(new Request("http://localhost/api/dashboard/stream"));
+      const reader = response.body!.getReader();
+      expect(await readUntil(reader, "event: ready")).toMatch(new RegExp(`^retry: ${retry}\\n\\n`));
+      vi.advanceTimersByTime(lifetime - 1);
+      expect(unsubscribe).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      await reader.cancel().catch(() => {});
+    } finally {
+      randomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
