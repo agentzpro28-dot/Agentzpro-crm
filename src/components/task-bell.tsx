@@ -23,8 +23,8 @@ export const TASKS_CHANGED_EVENT = "agentz:tasks-changed";
 export const LEADS_CHANGED_EVENT = "agentz:leads-changed";
 /**
  * How long the live stream may stay quiet before /leads stops trusting it. The stream route ends every stream after
- * 280 s and the browser reconnects 3 s later, which says "live" again, so a working stream is never quiet this long;
- * a connection that died without an error counts as down after it.
+ * at most 280 s and the browser reconnects at most 5 s later, which says "live" again, so a working stream is never
+ * quiet this long; a connection that died without an error counts as down after it.
  */
 const LIVE_STREAM_QUIET_MS = 330_000;
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";

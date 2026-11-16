@@ -12,13 +12,30 @@ export const maxDuration = 300;
  * reconnect goes back through the proxy (idle-session check) and requireCrmAccess (session,
  * membership, tenant status, subscription), so a signed-out, idle, removed or expired user loses the
  * feed within one lifetime without any cookie handling after the response has started.
+ *
+ * Each stream picks its lifetime and the browser's reconnect delay at random within the bounds below. Streams that
+ * started together (a server instance that stops drops all of its streams at once, and every browser reconnects)
+ * then end and reconnect at different moments, instead of together every few minutes from then on.
+ * The bounds are tied to other timers:
+ * - the longest lifetime stays 20 s inside maxDuration;
+ * - the longest delay plus the reconnect itself stays inside the dashboard's 10 s wait before it starts polling
+ *   (STREAM_GRACE_MS, use-dashboard-live.ts);
+ * - the longest lifetime plus the longest delay stays well inside the 330 s after which the shell stops trusting a
+ *   quiet stream (LIVE_STREAM_QUIET_MS, task-bell.tsx).
  */
-const STREAM_LIFETIME_MS = 280_000;
+const STREAM_LIFETIME_MIN_MS = 250_000;
+const STREAM_LIFETIME_MAX_MS = 280_000;
 const HEARTBEAT_MS = 20_000;
-const RECONNECT_DELAY_MS = 3_000;
+const RECONNECT_DELAY_MIN_MS = 1_000;
+const RECONNECT_DELAY_MAX_MS = 5_000;
 const MAX_STREAMS_PER_USER_PER_INSTANCE = 6;
 
 const openStreamsByUser = new Map<string, number>();
+
+/** A whole number of milliseconds from min to max, both included. */
+function randomMs(min: number, max: number): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
 
 export async function GET(request: Request): Promise<Response> {
   let context;
@@ -50,7 +67,7 @@ export async function GET(request: Request): Promise<Response> {
       };
       const sendEvent = (event: string, data: unknown) => send(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       const heartbeat = setInterval(() => send(": ping\n\n"), HEARTBEAT_MS);
-      const lifetime = setTimeout(close, STREAM_LIFETIME_MS);
+      const lifetime = setTimeout(close, randomMs(STREAM_LIFETIME_MIN_MS, STREAM_LIFETIME_MAX_MS));
 
       function close() {
         if (closed) return;
@@ -73,7 +90,7 @@ export async function GET(request: Request): Promise<Response> {
       // "ready" goes out before subscribing: the relay tells a late joiner the channel's current state at once (it
       // may already be "degraded"), and the dashboard and the lead timeline treat "ready" as "connected, stop the
       // backup refresh". Sent the other way round, "ready" cancelled the "degraded" it followed.
-      send(`retry: ${RECONNECT_DELAY_MS}\n\n`);
+      send(`retry: ${randomMs(RECONNECT_DELAY_MIN_MS, RECONNECT_DELAY_MAX_MS)}\n\n`);
       sendEvent("ready", { tenantId });
       if (closed) return;
 
