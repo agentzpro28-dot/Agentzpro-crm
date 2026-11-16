@@ -175,4 +175,52 @@ describe("GET /api/dashboard/stream", () => {
       vi.useRealTimers();
     }
   });
+
+  it("tells the browser to open the next stream 10 s before this one ends, and then ends it as before", async () => {
+    vi.useFakeTimers({ now: 0 });
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    // When each chunk was written, in fake milliseconds since the request.
+    const written: { at: number; text: string }[] = [];
+    const encode = TextEncoder.prototype.encode;
+    const encodeSpy = vi.spyOn(TextEncoder.prototype, "encode").mockImplementation(function (this: TextEncoder, text?: string) {
+      written.push({ at: Date.now(), text: text ?? "" });
+      return encode.call(this, text);
+    });
+    try {
+      const unsubscribe = vi.fn();
+      mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-rollover" });
+      mocks.subscribe.mockReturnValue(unsubscribe);
+      const response = await GET(new Request("http://localhost/api/dashboard/stream"));
+      const reader = response.body!.getReader();
+      await readUntil(reader, "event: ready");
+      // Lifetime 265 s (random 0.5): the hint goes out once, at 255 s.
+      vi.advanceTimersByTime(264_999);
+      expect(written.filter((chunk) => chunk.text.includes("rollover"))).toEqual([{ at: 255_000, text: "event: rollover\ndata: {}\n\n" }]);
+      expect(unsubscribe).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      await reader.cancel().catch(() => {});
+    } finally {
+      encodeSpy.mockRestore();
+      randomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends no rollover hint from a stream that already ended", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-early-end" });
+      mocks.subscribe.mockReturnValue(vi.fn());
+      const abort = new AbortController();
+      const response = await GET(new Request("http://localhost/api/dashboard/stream", { signal: abort.signal }));
+      const reader = response.body!.getReader();
+      await readUntil(reader, "event: ready");
+      abort.abort();
+      expect(vi.getTimerCount()).toBe(0);
+      await reader.cancel().catch(() => {});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
