@@ -25,6 +25,12 @@ export const maxDuration = 300;
  */
 const STREAM_LIFETIME_MIN_MS = 250_000;
 const STREAM_LIFETIME_MAX_MS = 280_000;
+/**
+ * This long before its end a stream sends "rollover": the browser opens the next stream beside it and switches once
+ * that one is live (live-stream.ts), so no lead signal falls into the gap and no page reloads to catch up. A browser
+ * that ignores the hint reconnects after the end, as before.
+ */
+const ROLLOVER_NOTICE_MS = 10_000;
 const HEARTBEAT_MS = 20_000;
 const RECONNECT_DELAY_MIN_MS = 1_000;
 const RECONNECT_DELAY_MAX_MS = 5_000;
@@ -67,13 +73,16 @@ export async function GET(request: Request): Promise<Response> {
       };
       const sendEvent = (event: string, data: unknown) => send(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       const heartbeat = setInterval(() => send(": ping\n\n"), HEARTBEAT_MS);
-      const lifetime = setTimeout(close, randomMs(STREAM_LIFETIME_MIN_MS, STREAM_LIFETIME_MAX_MS));
+      const lifetimeMs = randomMs(STREAM_LIFETIME_MIN_MS, STREAM_LIFETIME_MAX_MS);
+      const lifetime = setTimeout(close, lifetimeMs);
+      const rollover = setTimeout(() => sendEvent("rollover", {}), lifetimeMs - ROLLOVER_NOTICE_MS);
 
       function close() {
         if (closed) return;
         closed = true;
         clearInterval(heartbeat);
         clearTimeout(lifetime);
+        clearTimeout(rollover);
         unsubscribe();
         const remaining = (openStreamsByUser.get(userId) ?? 1) - 1;
         if (remaining <= 0) openStreamsByUser.delete(userId);
