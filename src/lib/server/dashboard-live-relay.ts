@@ -195,6 +195,14 @@ function closeTenantChannel(tenantId: string, entry: TenantChannel): void {
  */
 export function subscribeToTenantChanges(tenantId: string, listener: RelayListener): () => void {
   let entry = tenantChannels.get(tenantId);
+  // A held channel is reused only while supabase-js still lists it. One the server closed is dropped by supabase-js
+  // and never rejoined, so it is replaced, as a new stream did before channels were held. A listed channel that is
+  // failing is still being retried by supabase-js and is kept: a second one would only add a connection.
+  if (entry && entry.listeners.size === 0 && !entry.connection.client.getChannels().includes(entry.channel)) {
+    clearTimeout(entry.lingerTimer);
+    closeTenantChannel(tenantId, entry);
+    entry = undefined;
+  }
   if (!entry) {
     entry = openTenantChannel(tenantId);
     tenantChannels.set(tenantId, entry);

@@ -195,6 +195,42 @@ describe("dashboard live relay", () => {
     stop2();
   });
 
+  it("replaces a held channel that the server closed, since supabase-js never rejoins a closed channel", async () => {
+    const stop1 = subscribeToTenantChanges("tenant-s", vi.fn());
+    const closed = channelOf("tenant-s");
+    closed.status("SUBSCRIBED");
+    stop1();
+    // The server closes the channel during the hold: supabase-js drops it from the client and reports CLOSED.
+    closed.client.channels = closed.client.channels.filter((candidate) => candidate !== closed);
+    closed.status("CLOSED");
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const back = vi.fn();
+    const stop2 = subscribeToTenantChanges("tenant-s", back);
+    const fresh = channelOf("tenant-s");
+    expect(fresh).not.toBe(closed);
+    expect(fresh.subscribe).toHaveBeenCalledTimes(1);
+    expect(back).not.toHaveBeenCalled(); // not "live" before the new channel has joined
+    fresh.status("SUBSCRIBED");
+    expect(back).toHaveBeenCalledWith("live");
+    stop2();
+  });
+
+  it("keeps a held channel that supabase-js is still retrying and tells the returning stream it is degraded", async () => {
+    const stop1 = subscribeToTenantChanges("tenant-q", vi.fn());
+    const retrying = channelOf("tenant-q");
+    retrying.status("CHANNEL_ERROR", new Error("too_many_connections"));
+    stop1();
+    await vi.advanceTimersByTimeAsync(10_001);
+    const back = vi.fn();
+    const stop2 = subscribeToTenantChanges("tenant-q", back);
+    expect(channelOf("tenant-q")).toBe(retrying);
+    expect(back).toHaveBeenCalledWith("degraded");
+    expect(fake.createClient).toHaveBeenCalledTimes(1);
+    expect(fake.state.clients[0].channel).toHaveBeenCalledTimes(1);
+    stop2();
+  });
+
   it("does not call a transient join error 'degraded', but does after sustained failure, and logs why once", () => {
     const listener = vi.fn();
     const stop = subscribeToTenantChanges("tenant-d", listener);
