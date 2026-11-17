@@ -4119,9 +4119,8 @@ body.mvp-drawer-resizing .mvp-lead-drawer { animation: none; pointer-events: non
 .integration-card__section h3 { margin: 0; font-size: 1rem; }
 .integration-card__section .section-title { margin-bottom: 0; }
 
-/* Portal cards (99acres) on the Integrations page: the support email wraps instead of scrolling sideways, and the raw
-   request log lists each request with its status and an expandable copy of what was sent. */
-.portal-email pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Portal cards (99acres) on the Integrations page: the raw request log lists each request with its status and an
+   expandable copy of what was sent. */
 .portal-log-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .portal-log { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .portal-log__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }

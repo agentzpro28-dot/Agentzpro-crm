@@ -31,10 +31,13 @@ describe("PortalIntegrationCard (99acres)", () => {
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send test lead" })).toBeDisabled();
+    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(2);
+    expect(screen.queryByText("Waiting for first lead")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Generate webhook URL" }));
     await waitFor(() => expect(api.createPortalIntegration).toHaveBeenCalledWith("99acres"));
     expect(await screen.findByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
     expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Generate the webhook URL first.")).not.toBeInTheDocument();
   });
 
   it("hides the URL like a password until Show, and Copy URL copies the real URL", async () => {
@@ -48,17 +51,11 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(input.type).toBe("text");
   });
 
-  it("copies a ready email for 99acres support with the URL and the fields to send", async () => {
+  it("tells the owner to send the URL to 99acres, with no email to copy", async () => {
     render(<PortalIntegrationCard portal="99acres" />);
-    const email = await screen.findByLabelText("Email for 99acres support");
-    expect(email).toHaveTextContent(URL_VALUE);
-    fireEvent.click(screen.getByRole("button", { name: "Copy email for 99acres support" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalled());
-    const copied = String(writeText.mock.calls[0][0]);
-    expect(copied).toContain("Subject: Request: push my 99acres leads to my CRM (AgentzPro)");
-    expect(copied).toContain(`Webhook URL: ${URL_VALUE}`);
-    expect(copied).toContain("Fields for each lead: name, mobile, email, project_name, city, query, lead_id");
-    expect(copied).toContain("\"project_name\": \"Green Valley Residency\"");
+    expect(await screen.findByText("Copy the URL above and send it to your 99acres account manager or 99acres support.")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for first lead", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();
   });
 
   it("says Connected with the last lead time once a lead arrived", async () => {
@@ -120,12 +117,13 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(screen.queryByRole("button", { name: "Send test lead" })).not.toBeInTheDocument();
   });
 
-  it("offers Regenerate when the URL cannot be shown, and no email until a URL exists", async () => {
+  it("offers Regenerate when the URL cannot be shown, and still shows the real status", async () => {
     vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, logs: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to 99acres.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Copy email for 99acres support" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(1);
+    expect(screen.getByText("Waiting for first lead", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Regenerate URL" })).toBeEnabled();
   });
 

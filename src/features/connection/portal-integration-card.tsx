@@ -1,11 +1,11 @@
 "use client";
 
-import { Building2, Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, KeyRound, Loader2, Mail, RefreshCw, Send, X } from "lucide-react";
+import { Building2, Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, Send, X } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import { formatDateTime } from "@/lib/date-utils";
-import { PORTALS, buildPortalSupportEmail, type PortalId, type PortalIntegrationOverview, type PortalWebhookLogView } from "@/lib/portal-leads/portals";
+import { PORTALS, type PortalId, type PortalIntegrationOverview, type PortalWebhookLogView } from "@/lib/portal-leads/portals";
 import { createPortalIntegration, getPortalIntegrationOverview, sendPortalTestLead } from "@/services/crm-api-client";
 
 type Busy = "create" | "replace" | "test" | "refresh" | null;
@@ -20,8 +20,8 @@ const LOG_STATUS: Record<PortalWebhookLogView["status"], { label: string; tone: 
 
 /**
  * A real-estate portal (99acres) on the Integrations page: the company's own secret webhook URL, the 3 setup steps, a
- * ready-to-send email for the portal's support, a test lead, and the last 10 raw requests so the owner sees exactly
- * what the portal sends. The URL is the only secret, so it is shown only to the owner, hidden until asked.
+ * test lead, and the last 10 raw requests so the owner sees exactly what the portal sends. The URL is the only secret,
+ * so it is shown only to the owner, hidden until asked.
  */
 export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const { label } = PORTALS[portal];
@@ -30,7 +30,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [confirmReplace, setConfirmReplace] = useState(false);
-  const [copied, setCopied] = useState<"url" | "email" | null>(null);
+  const [copied, setCopied] = useState(false);
   const [showUrl, setShowUrl] = useState(false);
   const urlInputId = useId();
   const titleId = useId();
@@ -60,11 +60,11 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
     }
   }
 
-  async function copy(kind: "url" | "email", value: string): Promise<void> {
+  async function copyUrl(value: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(kind);
-      window.setTimeout(() => setCopied(null), 2000);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
     } catch {
       setMessage({ tone: "warning", text: "Copy did not work in this browser. Select the text and copy it instead." });
     }
@@ -73,8 +73,6 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const canManage = overview?.canManage === true;
   const integration = overview?.integration ?? null;
   const webhookUrl = integration?.url ?? null;
-  const email = webhookUrl ? buildPortalSupportEmail(portal, webhookUrl) : null;
-  const emailText = email ? `Subject: ${email.subject}\n\n${email.body}` : "";
   const badge = !overview ? null
     : integration ? (integration.lastLeadAt ? { tone: "success" as const, text: "Connected" } : { tone: "warning" as const, text: "Waiting for first lead" })
       : overview.hasIntegration && !canManage ? { tone: "success" as const, text: "Set up" } : { tone: "info" as const, text: "Not set up" };
@@ -95,7 +93,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
             <div className="field"><label htmlFor={urlInputId}>Webhook URL</label>
               <div className="google-copy-row"><input id={urlInputId} type={showUrl ? "text" : "password"} autoComplete="off" readOnly value={webhookUrl} onFocus={(event) => event.currentTarget.select()} />
                 <button className="google-copy-row__action" type="button" aria-pressed={showUrl} onClick={() => setShowUrl((current) => !current)}>{showUrl ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}{showUrl ? "Hide" : "Show"}</button>
-                <button className={`google-copy-row__action${copied === "url" ? " google-copy-row__action--done" : ""}`} type="button" onClick={() => void copy("url", webhookUrl)}>{copied === "url" ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}{copied === "url" ? "Copied" : "Copy URL"}</button></div></div>
+                <button className={`google-copy-row__action${copied ? " google-copy-row__action--done" : ""}`} type="button" onClick={() => void copyUrl(webhookUrl)}>{copied ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}{copied ? "Copied" : "Copy URL"}</button></div></div>
           </> : <Notice tone="warning" title={`This URL can't be shown. Regenerate it, then send the new URL to ${label}.`} />}
           <div className="button-group">
             {confirmReplace ? <>
@@ -112,19 +110,16 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
 
       <div className="google-ads-step">
         <h3><span className="google-step-number">2</span>Send it to {label}</h3>
-        <p className="field-help">Copy this email and send it to your {label} account manager or {label} support, from the email registered with your {label} account. Fill in the parts in [brackets].</p>
-        {email ? <div className="webhook-sample portal-email">
-          <pre aria-label={`Email for ${label} support`}>{emailText}</pre>
-          <button className={`google-copy-row__action${copied === "email" ? " google-copy-row__action--done" : ""}`} type="button" onClick={() => void copy("email", emailText)}>{copied === "email" ? <Check aria-hidden="true" size={16} /> : <Mail aria-hidden="true" size={16} />}{copied === "email" ? "Copied" : `Copy email for ${label} support`}</button>
-        </div> : <p className="field-help">Generate the webhook URL first.</p>}
+        <p className="field-help">{webhookUrl ? `Copy the URL above and send it to your ${label} account manager or ${label} support.` : "Generate the webhook URL first."}</p>
       </div>
 
       <div className="google-ads-step">
         <h3><span className="google-step-number">3</span>Check that leads arrive</h3>
-        {integration?.lastLeadAt ? <div className="google-arrival">
-          <strong className="google-arrival__status">Connected<Check aria-hidden="true" size={18} /></strong>
-          <span className="field-help" title={formatDateTime(integration.lastLeadAt)}>Last lead received {relativeTime(integration.lastLeadAt)}</span>
-        </div> : <div className="meta-list"><div className="meta-item"><span>Status</span><strong>Waiting for first lead</strong></div></div>}
+        {!integration ? <p className="field-help">Generate the webhook URL first.</p>
+          : integration.lastLeadAt ? <div className="google-arrival">
+            <strong className="google-arrival__status">Connected<Check aria-hidden="true" size={18} /></strong>
+            <span className="field-help" title={formatDateTime(integration.lastLeadAt)}>Last lead received {relativeTime(integration.lastLeadAt)}</span>
+          </div> : <div className="meta-list"><div className="meta-item"><span>Status</span><strong>Waiting for first lead</strong></div></div>}
         <p className="field-help">The status turns Connected when {label} sends the first lead. To check AgentzPro&apos;s side now, send a test lead: it is saved in Leads as &quot;Test Lead ({label})&quot;. Delete it from Leads afterwards.</p>
         <div className="button-group"><button className="button button--secondary" type="button" disabled={!integration || busy === "test"} onClick={() => void run("test", async () => {
           const result = await sendPortalTestLead(portal);
