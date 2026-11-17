@@ -103,15 +103,13 @@ describe("portal (99acres) checks", () => {
     expect(calls("/api/integrations/portals/99acres?details=1")).toBe(2);
   });
 
-  it("forgets the stored checks after a new URL is generated, but not after a test lead", async () => {
+  it("forgets the stored checks after a new URL is generated", async () => {
     await client.getPortalIntegrationStatuses();
-    await client.sendPortalTestLead("99acres");
     await client.getPortalIntegrationStatuses();
     expect(calls("/api/integrations/portals")).toBe(1);
     await client.createPortalIntegration("99acres");
     await client.getPortalIntegrationStatuses();
     expect(calls("/api/integrations/portals")).toBe(2);
     expect(fetchMock).toHaveBeenCalledWith("/api/integrations/portals/99acres", expect.objectContaining({ method: "POST" }));
-    expect(fetchMock).toHaveBeenCalledWith("/api/integrations/portals/99acres/test", expect.objectContaining({ method: "POST" }));
   });
 });

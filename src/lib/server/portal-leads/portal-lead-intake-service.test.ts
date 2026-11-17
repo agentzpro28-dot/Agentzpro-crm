@@ -145,12 +145,6 @@ describe("PortalLeadIntakeService.ingestFromWebhook", () => {
     await expect(ingest(json({ cust_name: "No Contact" }))).resolves.toMatchObject({ status: 400 });
   });
 
-  it("sends a test lead through the same path, flagged as a test", async () => {
-    await new PortalLeadIntakeService().ingestForIntegration({ ...INTEGRATION, portal_name: "99acres" }, json(ACRES), { isTest: true });
-    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ is_test: true }));
-    expect(mocks.rpc.mock.calls[0][1]).toMatchObject({ p_is_test: true, p_enquiry_summary: expect.stringMatching(/^Test 99acres enquiry/) });
-  });
-
   it("never logs the token, a phone number, an email or a name", async () => {
     await ingest(json({ ...ACRES, email: "ravi@example.com" }));
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });

@@ -36,7 +36,6 @@ export interface PortalWebhookLogView {
   method: "GET" | "POST";
   status: PortalWebhookLogStatus;
   errorMessage: string | null;
-  isTest: boolean;
   headers: Record<string, unknown>;
   queryParams: Record<string, unknown>;
   rawBody: string;
@@ -51,11 +50,11 @@ export interface PortalIntegrationOverview {
   hasIntegration: boolean;
   /**
    * Only for the owner, and only when the Integrations card asks (details): the URL to give the portal (null when its
-   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL (a test lead
-   * never counts) and the last 10 requests. Null otherwise.
+   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL and the last 10
+   * requests. Null otherwise.
    */
   integration: { url: string | null; lastLeadAt: string | null; logs: PortalWebhookLogView[] } | null;
 }
 
-/** What "Send test lead" did: stored = a new lead; merged / duplicate = the test lead already existed (a note was added). */
+/** What became of one enquiry: stored = a new lead; merged = a note on the lead with the same phone; duplicate = a retry. */
 export type PortalLeadOutcome = "stored" | "merged" | "duplicate";

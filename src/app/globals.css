@@ -4126,7 +4126,6 @@ body.mvp-drawer-resizing .mvp-lead-drawer { animation: none; pointer-events: non
 .portal-log__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
 .portal-log__time { color: var(--text); font-size: .875rem; font-weight: 600; }
 .portal-log__method { padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .75rem; font-weight: 700; }
-.portal-log__test { padding: 2px 8px; border-radius: 999px; background: var(--nav-active-bg); color: var(--primary-strong); font-size: .75rem; font-weight: 700; }
 .portal-log__toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--primary-strong); font: inherit; font-size: .8125rem; font-weight: 600; cursor: pointer; }
 .portal-log__toggle:hover { background: var(--nav-active-bg); }
 .portal-log__toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }

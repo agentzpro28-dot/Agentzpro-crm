@@ -86,7 +86,7 @@ export function isEmptyPortalRequest(request: PortalLeadRequest): boolean {
 }
 
 /** Parses and maps one portal request. Throws PortalLeadPayloadError for anything unusable. */
-export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, options: { fieldMapping?: unknown; isTest?: boolean } = {}): MappedPortalLead {
+export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, options: { fieldMapping?: unknown } = {}): MappedPortalLead {
   const body = request.method === "GET" ? emptyRecord() : parseBody(request.contentType, request.rawBody);
   const rawPayload = emptyRecord();
   for (const [key, value] of Object.entries(request.query)) rawPayload[key] = value;
@@ -149,12 +149,12 @@ export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, opti
     projectName: projectName ? projectName.slice(0, MAX_PORTAL_REF_LENGTH) : null,
     fieldData,
     rawPayload,
-    enquirySummary: buildSummary(portal, options.isTest === true, hasFullName || hasNameParts ? nameOf(fieldData) : null, projectName, answer("city"), answer("query")),
+    enquirySummary: buildSummary(portal, hasFullName || hasNameParts ? nameOf(fieldData) : null, projectName, answer("city"), answer("query")),
   };
 }
 
-function buildSummary(portal: PortalId, isTest: boolean, name: string | null, project: string | null, city: string | null, query: string | null): string {
-  const parts = [`${isTest ? "Test" : "New"} ${PORTALS[portal].label} enquiry`];
+function buildSummary(portal: PortalId, name: string | null, project: string | null, city: string | null, query: string | null): string {
+  const parts = [`New ${PORTALS[portal].label} enquiry`];
   if (name) parts.push(`Name: ${name}`);
   if (project) parts.push(`Project: ${project}`);
   if (city) parts.push(`City: ${city}`);

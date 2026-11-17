@@ -1,14 +1,14 @@
 "use client";
 
-import { Building2, Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, Send, X } from "lucide-react";
+import { Building2, Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import { formatDateTime } from "@/lib/date-utils";
 import { PORTALS, type PortalId, type PortalIntegrationOverview, type PortalWebhookLogView } from "@/lib/portal-leads/portals";
-import { createPortalIntegration, getPortalIntegrationOverview, sendPortalTestLead } from "@/services/crm-api-client";
+import { createPortalIntegration, getPortalIntegrationOverview } from "@/services/crm-api-client";
 
-type Busy = "create" | "replace" | "test" | "refresh" | null;
+type Busy = "create" | "replace" | "refresh" | null;
 type Message = { tone: "success" | "danger" | "warning" | "info"; text: string };
 
 const LOG_STATUS: Record<PortalWebhookLogView["status"], { label: string; tone: "success" | "info" | "danger" | "warning" }> = {
@@ -19,9 +19,9 @@ const LOG_STATUS: Record<PortalWebhookLogView["status"], { label: string; tone: 
 };
 
 /**
- * A real-estate portal (99acres) on the Integrations page: the company's own secret webhook URL, the 3 setup steps, a
- * test lead, and the last 10 raw requests so the owner sees exactly what the portal sends. The URL is the only secret,
- * so it is shown only to the owner, hidden until asked.
+ * A real-estate portal (99acres) on the Integrations page: the company's own secret webhook URL, the 3 setup steps, and
+ * the last 10 raw requests so the owner sees exactly what the portal sends. The URL is the only secret, so it is shown
+ * only to the owner, hidden until asked.
  */
 export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const { label } = PORTALS[portal];
@@ -120,14 +120,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
             <strong className="google-arrival__status">Connected<Check aria-hidden="true" size={18} /></strong>
             <span className="field-help" title={formatDateTime(integration.lastLeadAt)}>Last lead received {relativeTime(integration.lastLeadAt)}</span>
           </div> : <div className="meta-list"><div className="meta-item"><span>Status</span><strong>Waiting for first lead</strong></div></div>}
-        <p className="field-help">The status turns Connected when {label} sends the first lead. To check AgentzPro&apos;s side now, send a test lead: it is saved in Leads as &quot;Test Lead ({label})&quot;. Delete it from Leads afterwards.</p>
-        <div className="button-group"><button className="button button--secondary" type="button" disabled={!integration || busy === "test"} onClick={() => void run("test", async () => {
-          const result = await sendPortalTestLead(portal);
-          await reload();
-          setMessage(result.outcome === "stored"
-            ? { tone: "success", text: `Test lead saved. Open Leads to see "Test Lead (${label})".` }
-            : { tone: "success", text: "The test lead is already in Leads, so a note was added to it." });
-        })}>{busy === "test" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Send aria-hidden="true" size={18} />}Send test lead</button></div>
+        <p className="field-help">The status turns Connected when {label} sends the first lead.</p>
       </div>
 
       {integration ? <div className="integration-card__section">
@@ -151,7 +144,6 @@ function PortalLogItem({ entry }: { entry: PortalWebhookLogView }) {
       <span className="portal-log__time">{formatDateTime(entry.createdAt)}</span>
       <span className="portal-log__method">{entry.method}</span>
       <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-      {entry.isTest ? <span className="portal-log__test">Test</span> : null}
       <button className="portal-log__toggle" type="button" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen((current) => !current)}>{open ? <ChevronUp aria-hidden="true" size={16} /> : <ChevronDown aria-hidden="true" size={16} />}{open ? "Hide" : "View"}</button>
     </div>
     {entry.errorMessage ? <p className="portal-log__error">{entry.errorMessage}</p> : null}

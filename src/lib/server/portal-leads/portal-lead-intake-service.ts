@@ -29,7 +29,7 @@ export interface IncomingPortalRequest {
   rawBody: string;
 }
 
-/** The integration row the intake needs, found by the URL token (public route) or by the company (test lead). */
+/** The integration row the intake needs, found by the URL token. */
 export interface PortalIntegrationRow {
   id: string;
   tenant_id: string;
@@ -73,14 +73,13 @@ export class PortalLeadIntakeService {
   }
 
   /**
-   * One request for a known, active integration: the public webhook after its token lookup, or "Send test lead" on the
-   * Integrations card (isTest). The raw request is written to portal_webhook_logs BEFORE it is read, so an enquiry that
-   * cannot be read (unexpected field names, a new format) is never lost: the owner sees it in the card.
+   * One request for a known, active integration, after the public webhook's token lookup. The raw request is written to
+   * portal_webhook_logs BEFORE it is read, so an enquiry that cannot be read (unexpected field names, a new format) is
+   * never lost: the owner sees it in the card.
    */
-  public async ingestForIntegration(integration: PortalIntegrationRow, request: IncomingPortalRequest, options: { isTest?: boolean } = {}): Promise<PortalIntakeResult> {
+  public async ingestForIntegration(integration: PortalIntegrationRow, request: IncomingPortalRequest): Promise<PortalIntakeResult> {
     const portal = integration.portal_name;
     const tenantId = integration.tenant_id;
-    const isTest = options.isTest === true;
 
     const rate = await checkCustomWebhookRate(integration.id);
     if (!rate.allowed) {
@@ -103,7 +102,7 @@ export class PortalLeadIntakeService {
         headers: loggableHeaders(request.headers),
         query_params: request.query,
         raw_body: request.rawBody,
-        is_test: isTest,
+        is_test: false,
       })
       .select("id")
       .single();
@@ -113,7 +112,7 @@ export class PortalLeadIntakeService {
 
     let lead;
     try {
-      lead = mapPortalLead(portal, { method: request.method, contentType: request.headers.get("content-type"), query: request.query, rawBody: request.rawBody }, { fieldMapping: integration.field_mapping, isTest });
+      lead = mapPortalLead(portal, { method: request.method, contentType: request.headers.get("content-type"), query: request.query, rawBody: request.rawBody }, { fieldMapping: integration.field_mapping });
     } catch (mapError) {
       if (mapError instanceof PortalLeadPayloadError) {
         log(portal, "INVALID_PAYLOAD", tenantId);
@@ -134,7 +133,7 @@ export class PortalLeadIntakeService {
       p_enquiry_summary: lead.enquirySummary,
       p_field_data: lead.fieldData,
       p_raw_payload: lead.rawPayload,
-      p_is_test: isTest,
+      p_is_test: false,
     });
     if (ingestError) {
       // The URL was replaced or stopped between the lookup and the save.
@@ -156,17 +155,6 @@ export class PortalLeadIntakeService {
     log(portal, kind === "stored" ? "LEAD_STORED" : kind === "merged" ? "LEAD_MERGED" : "DUPLICATE_LEAD", tenantId);
     return { status: 200, message: "Lead received", duplicate: kind !== "stored", outcome: kind, leadId: String(result?.lead_id ?? "") };
   }
-}
-
-/** The integration a company has for this portal, for "Send test lead". Null when it has none. */
-export async function findPortalIntegrationForTenant(tenantId: string, portal: PortalId): Promise<PortalIntegrationRow | null> {
-  const { data, error } = await getSupabaseAdminClient().from("portal_integrations")
-    .select(INTEGRATION_COLUMNS)
-    .eq("tenant_id", tenantId)
-    .eq("portal_name", portal)
-    .maybeSingle();
-  if (error) throw error;
-  return data as PortalIntegrationRow | null;
 }
 
 /**
