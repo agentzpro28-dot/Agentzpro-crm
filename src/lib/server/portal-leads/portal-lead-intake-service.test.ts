@@ -145,12 +145,6 @@ describe("PortalLeadIntakeService.ingestFromWebhook", () => {
     await expect(ingest(json({ cust_name: "No Contact" }))).resolves.toMatchObject({ status: 400 });
   });
 
-  it("sends a test lead through the same path, flagged as a test", async () => {
-    await new PortalLeadIntakeService().ingestForIntegration({ ...INTEGRATION, portal_name: "99acres" }, json(ACRES), { isTest: true });
-    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ is_test: true }));
-    expect(mocks.rpc.mock.calls[0][1]).toMatchObject({ p_is_test: true, p_enquiry_summary: expect.stringMatching(/^Test 99acres enquiry/) });
-  });
-
   it("never logs the token, a phone number, an email or a name", async () => {
     await ingest(json({ ...ACRES, email: "ravi@example.com" }));
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
@@ -169,7 +163,7 @@ describe("loggableHeaders", () => {
   it("hides anything that may carry a credential and drops our hosting's own headers", () => {
     expect(loggableHeaders(new Headers({
       "content-type": "application/json", "user-agent": "99acres-push/1.0", authorization: "Bearer x", cookie: "a=b", "x-api-key": "k",
-      "x-vercel-id": "bom1::abc", "x-forwarded-for": "203.0.113.9",
+      "x-vercel-id": "bom1::abc", "x-invocation-id": "inv-1", "x-forwarded-for": "203.0.113.9",
     }))).toEqual({
       "content-type": "application/json", "user-agent": "99acres-push/1.0", authorization: "[hidden]", cookie: "[hidden]", "x-api-key": "[hidden]",
       "x-forwarded-for": "203.0.113.9",

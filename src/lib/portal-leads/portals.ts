@@ -36,7 +36,6 @@ export interface PortalWebhookLogView {
   method: "GET" | "POST";
   status: PortalWebhookLogStatus;
   errorMessage: string | null;
-  isTest: boolean;
   headers: Record<string, unknown>;
   queryParams: Record<string, unknown>;
   rawBody: string;
@@ -51,59 +50,11 @@ export interface PortalIntegrationOverview {
   hasIntegration: boolean;
   /**
    * Only for the owner, and only when the Integrations card asks (details): the URL to give the portal (null when its
-   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL (a test lead
-   * never counts) and the last 10 requests. Null otherwise.
+   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL and the last 10
+   * requests. Null otherwise.
    */
   integration: { url: string | null; lastLeadAt: string | null; logs: PortalWebhookLogView[] } | null;
 }
 
-/** What "Send test lead" did: stored = a new lead; merged / duplicate = the test lead already existed (a note was added). */
+/** What became of one enquiry: stored = a new lead; merged = a note on the lead with the same phone; duplicate = a retry. */
 export type PortalLeadOutcome = "stored" | "merged" | "duplicate";
-
-/** The fields the support email asks the portal to send, in this order. */
-export const PORTAL_REQUEST_FIELDS = ["name", "mobile", "email", "project_name", "city", "query", "lead_id"] as const;
-
-/** The example lead in the support email: the field names we ask for. */
-export const PORTAL_EXAMPLE_LEAD = {
-  name: "Ravi Kumar",
-  mobile: "9876543210",
-  email: "ravi@example.com",
-  project_name: "Green Valley Residency",
-  city: "Chennai",
-  query: "Interested in a 2 BHK. Please call back.",
-  lead_id: "123456789",
-} as const;
-
-/**
- * The ready-to-send email a company owner sends to the portal's support or account manager, with the company's own
- * webhook URL. The bracketed parts are for the owner to fill in.
- */
-export function buildPortalSupportEmail(portal: PortalId, webhookUrl: string): { subject: string; body: string } {
-  const { label } = PORTALS[portal];
-  return {
-    subject: `Request: push my ${label} leads to my CRM (AgentzPro)`,
-    body: [
-      `Hello ${label} Support Team,`,
-      "",
-      `Please push every lead (response) from my ${label} account to my CRM, AgentzPro, in real time.`,
-      "",
-      `My ${label} account (registered email or mobile): [fill in]`,
-      `Company name: [fill in]`,
-      "",
-      `Webhook URL: ${webhookUrl}`,
-      "Method: POST, as JSON (application/json) or form data (application/x-www-form-urlencoded). GET with URL parameters also works.",
-      `Fields for each lead: ${PORTAL_REQUEST_FIELDS.join(", ")}`,
-      "",
-      "Example (JSON):",
-      JSON.stringify(PORTAL_EXAMPLE_LEAD, null, 2),
-      "",
-      'The URL answers HTTP 200 with {"success": true, "message": "Lead received"} when the lead is saved.',
-      "Please send one test lead after setting it up and let me know.",
-      "",
-      "Please keep this URL private: it is unique to my account.",
-      "",
-      "Thank you,",
-      "[Your name]",
-    ].join("\n"),
-  };
-}

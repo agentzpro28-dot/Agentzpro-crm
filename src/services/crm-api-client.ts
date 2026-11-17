@@ -1,5 +1,5 @@
 import type { ConnectionOverview, EligibleFacebookPage } from "@/lib/types";
-import type { PortalId, PortalIntegrationOverview, PortalIntegrationStatus, PortalLeadOutcome } from "@/lib/portal-leads/portals";
+import type { PortalId, PortalIntegrationOverview, PortalIntegrationStatus } from "@/lib/portal-leads/portals";
 
 type ApiErrorPayload = { error?: { message?: string; code?: string; details?: Record<string, unknown> } };
 
@@ -129,4 +129,3 @@ export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalI
 /** The Integrations card's view of one portal: always read fresh, with the owner's URL and the last 10 raw requests. */
 export async function getPortalIntegrationOverview(portal: PortalId): Promise<PortalIntegrationOverview> { return request<PortalIntegrationOverview>(`/api/integrations/portals/${encodeURIComponent(portal)}?details=1`); }
 export async function createPortalIntegration(portal: PortalId): Promise<{ url: string }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "POST", body: "{}" }); }
-export async function sendPortalTestLead(portal: PortalId): Promise<{ outcome: PortalLeadOutcome; leadId: string }> { return request(`/api/integrations/portals/${encodeURIComponent(portal)}/test`, { method: "POST", body: "{}" }); }

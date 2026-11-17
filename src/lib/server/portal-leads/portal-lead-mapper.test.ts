@@ -91,8 +91,8 @@ describe("mapPortalLead", () => {
     expect(fields(lead).__proto__).toEqual(["x"]);
   });
 
-  it("marks a test enquiry in its note text", () => {
-    expect(mapPortalLead("99acres", post({ mobile: "9876543210" }), { isTest: true }).enquirySummary).toBe("Test 99acres enquiry");
+  it("starts every note text with New 99acres enquiry", () => {
+    expect(mapPortalLead("99acres", post({ mobile: "9876543210" })).enquirySummary).toBe("New 99acres enquiry");
   });
 });
 

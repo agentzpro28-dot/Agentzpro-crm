@@ -3,13 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/leads/99acres/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const LOG = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", method: "POST" as const, status: "failed" as const, errorMessage: "Send mobile or email.", isTest: false, headers: { "content-type": "application/json" }, queryParams: { src: "99" }, rawBody: "{\"custName\":\"Ravi\"}", bodyCut: false };
+const LOG = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", method: "POST" as const, status: "failed" as const, errorMessage: "Send mobile or email.", headers: { "content-type": "application/json" }, queryParams: { src: "99" }, rawBody: "{\"custName\":\"Ravi\"}", bodyCut: false };
 const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, logs: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getPortalIntegrationOverview: vi.fn(),
   createPortalIntegration: vi.fn(),
-  sendPortalTestLead: vi.fn(),
 }));
 
 const { PortalIntegrationCard, prettyBody, relativeTime } = await import("@/features/connection/portal-integration-card");
@@ -19,7 +18,6 @@ let writeText: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.mocked(api.getPortalIntegrationOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createPortalIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
-  vi.mocked(api.sendPortalTestLead).mockReset().mockResolvedValue({ outcome: "stored", leadId: "lead-1" });
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -30,11 +28,13 @@ describe("PortalIntegrationCard (99acres)", () => {
     vi.mocked(api.getPortalIntegrationOverview).mockResolvedValueOnce({ portal: "99acres", canManage: true, hasIntegration: false, integration: null });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send test lead" })).toBeDisabled();
+    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(2);
+    expect(screen.queryByText("Waiting for first lead")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Generate webhook URL" }));
     await waitFor(() => expect(api.createPortalIntegration).toHaveBeenCalledWith("99acres"));
     expect(await screen.findByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
     expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Generate the webhook URL first.")).not.toBeInTheDocument();
   });
 
   it("hides the URL like a password until Show, and Copy URL copies the real URL", async () => {
@@ -48,17 +48,13 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(input.type).toBe("text");
   });
 
-  it("copies a ready email for 99acres support with the URL and the fields to send", async () => {
+  it("tells the owner to send the URL to 99acres, with no email to copy and no test lead", async () => {
     render(<PortalIntegrationCard portal="99acres" />);
-    const email = await screen.findByLabelText("Email for 99acres support");
-    expect(email).toHaveTextContent(URL_VALUE);
-    fireEvent.click(screen.getByRole("button", { name: "Copy email for 99acres support" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalled());
-    const copied = String(writeText.mock.calls[0][0]);
-    expect(copied).toContain("Subject: Request: push my 99acres leads to my CRM (AgentzPro)");
-    expect(copied).toContain(`Webhook URL: ${URL_VALUE}`);
-    expect(copied).toContain("Fields for each lead: name, mobile, email, project_name, city, query, lead_id");
-    expect(copied).toContain("\"project_name\": \"Green Valley Residency\"");
+    expect(await screen.findByText("Copy the URL above and send it to your 99acres account manager or 99acres support.")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for first lead", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText("The status turns Connected when 99acres sends the first lead.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /test lead/i })).not.toBeInTheDocument();
   });
 
   it("says Connected with the last lead time once a lead arrived", async () => {
@@ -66,21 +62,6 @@ describe("PortalIntegrationCard (99acres)", () => {
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.getByText("Last lead received 5 minutes ago")).toBeInTheDocument();
-  });
-
-  it("sends a test lead, reloads the request log and says where to find the lead", async () => {
-    render(<PortalIntegrationCard portal="99acres" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Send test lead" }));
-    await waitFor(() => expect(api.sendPortalTestLead).toHaveBeenCalledWith("99acres"));
-    expect(await screen.findByText("Test lead saved. Open Leads to see \"Test Lead (99acres)\".")).toBeInTheDocument();
-    expect(api.getPortalIntegrationOverview).toHaveBeenCalledTimes(2);
-  });
-
-  it("says a repeated test lead was added as a note", async () => {
-    vi.mocked(api.sendPortalTestLead).mockResolvedValue({ outcome: "merged", leadId: "lead-1" });
-    render(<PortalIntegrationCard portal="99acres" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Send test lead" }));
-    expect(await screen.findByText("The test lead is already in Leads, so a note was added to it.")).toBeInTheDocument();
   });
 
   it("asks before regenerating, then replaces the URL", async () => {
@@ -95,7 +76,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("lists the last requests and shows exactly what was sent on View", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, logs: [LOG, { ...LOG, id: "log-2", status: "processed", errorMessage: null, isTest: true }] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, logs: [LOG, { ...LOG, id: "log-2", status: "processed", errorMessage: null }] } });
     render(<PortalIntegrationCard portal="99acres" />);
     const list = await screen.findByRole("list");
     const items = within(list).getAllByRole("listitem");
@@ -103,7 +84,6 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(within(items[0]).getByText("Failed")).toBeInTheDocument();
     expect(within(items[0]).getByText("Send mobile or email.")).toBeInTheDocument();
     expect(within(items[1]).getByText("Saved")).toBeInTheDocument();
-    expect(within(items[1]).getByText("Test")).toBeInTheDocument();
     fireEvent.click(within(items[0]).getByRole("button", { name: "View" }));
     expect(within(items[0]).getByText(/"custName": "Ravi"/)).toBeInTheDocument();
     expect(within(items[0]).getByText(/"src": "99"/)).toBeInTheDocument();
@@ -117,15 +97,16 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(await screen.findByText("Only the company owner can set up 99acres.")).toBeInTheDocument();
     expect(screen.getByText("Set up")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Send test lead" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate URL" })).not.toBeInTheDocument();
   });
 
-  it("offers Regenerate when the URL cannot be shown, and no email until a URL exists", async () => {
+  it("offers Regenerate when the URL cannot be shown, and still shows the real status", async () => {
     vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, logs: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to 99acres.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Copy email for 99acres support" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(1);
+    expect(screen.getByText("Waiting for first lead", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Regenerate URL" })).toBeEnabled();
   });
 
