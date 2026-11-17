@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowDownWideNarrow,
   BriefcaseBusiness,
@@ -556,7 +556,9 @@ function InvitationSentPopup({ results, onClose }: Readonly<{ results: Invitatio
   const savedOnly = results.filter((item) => item.status === "saved_existing_account").map((item) => item.email);
   const title = emailed.length > 0 ? "Invitation sent successfully" : "Invitation saved";
 
-  useEffect(() => {
+  // A layout effect runs in the same step that puts the popup on the page, before the browser paints it, so
+  // there is never a moment where the popup shows while the focus is still on the Send button behind it.
+  useLayoutEffect(() => {
     okButtonRef.current?.focus();
   }, []);
 

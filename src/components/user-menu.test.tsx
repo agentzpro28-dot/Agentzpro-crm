@@ -409,13 +409,26 @@ describe("UserMenu settings dialog", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Send" })).toBeEnabled());
 
     fireEvent.change(within(dialog).getByPlaceholderText("jane@example.com"), { target: { value: "ravi@example.com" } });
+
+    // Record what has the focus at the very moment the popup is added to the page. OK must already have it: no
+    // split second where the popup shows while the focus is still behind it. This holds on a busy machine too.
+    let focusedWhenShown: Element | null | undefined;
+    const observer = new MutationObserver(() => {
+      if (focusedWhenShown === undefined && document.querySelector('[role="alertdialog"]')) {
+        focusedWhenShown = document.activeElement;
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
     fireEvent.click(within(dialog).getByRole("button", { name: "Send" }));
 
-    const popup = await within(dialog).findByRole("alertdialog", { name: "Invitation sent successfully" });
+    let popup: HTMLElement;
+    try {
+      popup = await within(dialog).findByRole("alertdialog", { name: "Invitation sent successfully" });
+    } finally {
+      observer.disconnect();
+    }
     expect(within(popup).getByText("ravi@example.com")).toBeInTheDocument();
-    // The popup appears after the send request finishes, and moves focus to OK just after it shows (an effect), so
-    // wait for the focus rather than checking at the instant the popup is found; on a busy machine that is too early.
-    await waitFor(() => expect(within(popup).getByRole("button", { name: "OK" })).toHaveFocus());
+    expect(focusedWhenShown).toBe(within(popup).getByRole("button", { name: "OK" }));
     expect(sendInvitations).toHaveBeenCalledWith([{ email: "ravi@example.com", role: "employee" }]);
     expect(within(dialog).getByPlaceholderText("jane@example.com")).toHaveValue("");
     expect(getTenantMembers).toHaveBeenCalledTimes(2);
