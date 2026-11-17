@@ -241,6 +241,21 @@ describe("handover when the server says rollover", () => {
     expect(watcher.received).toEqual(["change:{}", "error"]);
   });
 
+  it("drops the next connection when the current one stops being live before the switch, so the old path catches up", () => {
+    const watcher = liveHandle();
+    const first = latest();
+    first.emit("rollover");
+    const second = latest();
+    // The current connection's live link breaks while the next one is still connecting: a signal may be missed now.
+    first.emit("status", { state: "degraded" });
+    goLive(second);
+    expect(second.readyState).toBe(CLOSED);
+    expect(watcher.received).toEqual(['status:{"state":"degraded"}']);
+    // The old one then ends as always, and the pages get the error that makes them catch up.
+    first.fail();
+    expect(watcher.received).toEqual(['status:{"state":"degraded"}', "error"]);
+  });
+
   it("drops the next connection when the old one ends first, and the handles hear the old one's error once", () => {
     const watcher = liveHandle();
     const first = latest();
@@ -375,6 +390,21 @@ describe("a stream restart on a full page (shell, dashboard, new-leads bar, open
     // Lead signals keep arriving on the connection that took over.
     act(() => latest().emit("change", {}));
     act(() => latest().emit("activity", { leadId: "lead-1" }));
+    await wait(1_000);
+    expect([calls("/api/dashboard/stats"), calls("/api/leads/new-count"), calls("/api/leads/lead-1/activities")]).toEqual([1, 1, 1]);
+    page.unmount();
+  });
+
+  it("catches up as before when the live link breaks during a handover", async () => {
+    const page = await openPage();
+    const first = latest();
+    act(() => first.emit("rollover"));
+    const second = latest();
+    act(() => first.emit("status", { state: "degraded" }));
+    goLive(second);
+    expect(second.readyState).toBe(CLOSED);
+    act(() => first.fail());
+    goLive(first);
     await wait(1_000);
     expect([calls("/api/dashboard/stats"), calls("/api/leads/new-count"), calls("/api/leads/lead-1/activities")]).toEqual([1, 1, 1]);
     page.unmount();

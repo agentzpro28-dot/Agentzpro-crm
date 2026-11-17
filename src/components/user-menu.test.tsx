@@ -413,7 +413,9 @@ describe("UserMenu settings dialog", () => {
 
     const popup = await within(dialog).findByRole("alertdialog", { name: "Invitation sent successfully" });
     expect(within(popup).getByText("ravi@example.com")).toBeInTheDocument();
-    expect(within(popup).getByRole("button", { name: "OK" })).toHaveFocus();
+    // The popup appears after the send request finishes, and moves focus to OK just after it shows (an effect), so
+    // wait for the focus rather than checking at the instant the popup is found; on a busy machine that is too early.
+    await waitFor(() => expect(within(popup).getByRole("button", { name: "OK" })).toHaveFocus());
     expect(sendInvitations).toHaveBeenCalledWith([{ email: "ravi@example.com", role: "employee" }]);
     expect(within(dialog).getByPlaceholderText("jane@example.com")).toHaveValue("");
     expect(getTenantMembers).toHaveBeenCalledTimes(2);
