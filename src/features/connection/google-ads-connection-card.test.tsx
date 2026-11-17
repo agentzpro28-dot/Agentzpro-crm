@@ -117,7 +117,8 @@ describe("GoogleAdsConnectionCard stop leads", () => {
     const popup = await screen.findByRole("alertdialog", { name: "Google Ads leads disconnected" });
     expect(popup).toHaveTextContent("AgentzPro will no longer accept leads from Google Ads. To stop Google from sending them, remove the webhook URL and key from your Google Ads lead forms and save.");
     expect(within(popup).getAllByRole("button").map((button) => button.textContent)).toEqual(["OK"]);
-    expect(within(popup).getByRole("button", { name: "OK" })).toHaveFocus();
+    // The popup moves focus to OK just after it shows (an effect): wait for it, as checking at once can be too early.
+    await waitFor(() => expect(within(popup).getByRole("button", { name: "OK" })).toHaveFocus());
 
     fireEvent.click(within(popup).getByRole("button", { name: "OK" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
