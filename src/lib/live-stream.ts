@@ -172,10 +172,15 @@ function readState(event: MessageEvent<string>): unknown {
   }
 }
 
+/** Whether the current connection's latest status says "live". */
+function currentIsLive(): boolean {
+  const status = stateEvents.find((entry) => entry.name === "status");
+  return status !== undefined && readState(status.event) === "live";
+}
+
 /** The server said "rollover": open the next connection, but only when this one is live (otherwise: as before). */
 function startHandover(): void {
-  const status = stateEvents.find((entry) => entry.name === "status");
-  if (handover || handles.size === 0 || !status || readState(status.event) !== "live") return;
+  if (handover || handles.size === 0 || !currentIsLive()) return;
   const next = new EventSource(STREAM_URL);
   handover = { source: next, ready: null, timer: setTimeout(dropHandover, HANDOVER_TIMEOUT_MS) };
   const pending = () => (handover?.source === next ? handover : null);
@@ -187,7 +192,9 @@ function startHandover(): void {
     const current = pending();
     if (!current) return;
     const message = event as MessageEvent<string>;
-    if (current.ready && readState(message) === "live") completeHandover(next, current.ready, { name: "status", event: message });
+    // The current one must still be live at the switch: one that stopped meanwhile may have missed a signal, which
+    // only the old path's reconnect (an error, then each page's catch-up) makes up for.
+    if (current.ready && readState(message) === "live" && currentIsLive()) completeHandover(next, current.ready, { name: "status", event: message });
     else dropHandover();
   });
   // Any error, including a refusal (401, 429) that makes the browser give up: drop it, no handle is told.
