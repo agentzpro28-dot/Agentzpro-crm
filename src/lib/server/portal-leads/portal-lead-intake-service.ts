@@ -44,7 +44,7 @@ const INTEGRATION_COLUMNS = "id,tenant_id,portal_name,is_active,field_mapping";
 const MAX_LOGGED_HEADERS = 50;
 const MAX_LOGGED_HEADER_LENGTH = 1000;
 // Platform headers added by our own hosting, not sent by the portal: they would only fill the log.
-const DROPPED_HEADER = /^(x-vercel-|x-middleware-|x-invoke-|x-nextjs-|x-matched-path$|x-real-ip$|x-forwarded-host$|x-forwarded-proto$|x-forwarded-port$|forwarded$)/;
+const DROPPED_HEADER = /^(x-vercel-|x-middleware-|x-invoke-|x-nextjs-|x-invocation-id$|x-matched-path$|x-real-ip$|x-forwarded-host$|x-forwarded-proto$|x-forwarded-port$|forwarded$)/;
 // Anything that may carry a credential is logged as hidden, never as sent.
 const HIDDEN_HEADER = /(cookie|authorization|token|secret|key|signature|password|auth)/;
 

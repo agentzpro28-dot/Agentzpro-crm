@@ -163,7 +163,7 @@ describe("loggableHeaders", () => {
   it("hides anything that may carry a credential and drops our hosting's own headers", () => {
     expect(loggableHeaders(new Headers({
       "content-type": "application/json", "user-agent": "99acres-push/1.0", authorization: "Bearer x", cookie: "a=b", "x-api-key": "k",
-      "x-vercel-id": "bom1::abc", "x-forwarded-for": "203.0.113.9",
+      "x-vercel-id": "bom1::abc", "x-invocation-id": "inv-1", "x-forwarded-for": "203.0.113.9",
     }))).toEqual({
       "content-type": "application/json", "user-agent": "99acres-push/1.0", authorization: "[hidden]", cookie: "[hidden]", "x-api-key": "[hidden]",
       "x-forwarded-for": "203.0.113.9",
