@@ -561,6 +561,31 @@ describe("webhook leads", () => {
   });
 });
 
+describe("99acres leads", () => {
+  it("shows 99acres's lead id, '99acres' as the page and the project as the ad, with no ad id", async () => {
+    const acres = { leadgen_id: null, google_lead_id: null, google_campaign_id: null, custom_lead_ref: null, custom_source_name: null, lead_phone: "9876543210", ad_id: null, ad_name: null, lead_created_time: "2026-11-17T10:00:00Z", status: "New Lead", label: "Warm", label_source: "ai", lead_source: "99acres", facebook_pages: null };
+    const leads = builder({ data: [
+      { ...acres, id: "lead-1", lead_name: "Ravi", portal_lead_ref: "ENQ-1", portal_project_name: "Green Valley" },
+      { ...acres, id: "lead-2", lead_name: "99acres Lead", portal_lead_ref: null, portal_project_name: null },
+    ], error: null, count: 2 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
+    expect(leads.select.mock.calls[0][0]).toContain("portal_lead_ref,portal_project_name");
+    expect(result.items[0]).toMatchObject({ source: "99acres", leadgenId: "ENQ-1", facebookPage: "99acres", adName: "Green Valley", adId: null });
+    expect(result.items[1]).toMatchObject({ source: "99acres", leadgenId: "", facebookPage: "99acres", adName: "-" });
+  });
+
+  it("filters the 99acres source by lead_platform, like any platform", async () => {
+    const leads = builder({ data: [], error: null, count: 0 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    await queryLeads(context, { source: "99acres" });
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.eq).toHaveBeenCalledWith("lead_platform", "99acres");
+  });
+});
+
 describe("the company timezone of a signed-in request", () => {
   it("uses the timezone the login check already read, with no second read of the company row", async () => {
     const leads = builder({ data: [], error: null, count: 0 });

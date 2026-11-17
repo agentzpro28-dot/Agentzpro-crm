@@ -1,4 +1,5 @@
 import type { ConnectionOverview, EligibleFacebookPage } from "@/lib/types";
+import type { PortalId, PortalIntegrationOverview, PortalIntegrationStatus, PortalLeadOutcome } from "@/lib/portal-leads/portals";
 
 type ApiErrorPayload = { error?: { message?: string; code?: string; details?: Record<string, unknown> } };
 
@@ -122,3 +123,10 @@ export async function getCustomWebhookOverview(options: { details?: boolean } = 
 }
 export async function createCustomWebhook(): Promise<{ url: string }> { return changeConnection("/api/integrations/custom-webhook", { method: "POST", body: "{}" }); }
 export async function stopCustomWebhook(): Promise<{ stopped: boolean }> { return changeConnection("/api/integrations/custom-webhook", { method: "DELETE" }); }
+
+/** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
+export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }
+/** The Integrations card's view of one portal: always read fresh, with the owner's URL and the last 10 raw requests. */
+export async function getPortalIntegrationOverview(portal: PortalId): Promise<PortalIntegrationOverview> { return request<PortalIntegrationOverview>(`/api/integrations/portals/${encodeURIComponent(portal)}?details=1`); }
+export async function createPortalIntegration(portal: PortalId): Promise<{ url: string }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "POST", body: "{}" }); }
+export async function sendPortalTestLead(portal: PortalId): Promise<{ outcome: PortalLeadOutcome; leadId: string }> { return request(`/api/integrations/portals/${encodeURIComponent(portal)}/test`, { method: "POST", body: "{}" }); }

@@ -92,3 +92,26 @@ describe("shared connection checks", () => {
     expect(calls("/api/integrations/custom-webhook?details=1")).toBe(2);
   });
 });
+
+describe("portal (99acres) checks", () => {
+  it("shares the /leads and dashboard portal check like the other connection checks, but reads the card's view fresh", async () => {
+    await Promise.all([client.getPortalIntegrationStatuses(), client.getPortalIntegrationStatuses()]);
+    await client.getPortalIntegrationStatuses();
+    expect(calls("/api/integrations/portals")).toBe(1);
+    await client.getPortalIntegrationOverview("99acres");
+    await client.getPortalIntegrationOverview("99acres");
+    expect(calls("/api/integrations/portals/99acres?details=1")).toBe(2);
+  });
+
+  it("forgets the stored checks after a new URL is generated, but not after a test lead", async () => {
+    await client.getPortalIntegrationStatuses();
+    await client.sendPortalTestLead("99acres");
+    await client.getPortalIntegrationStatuses();
+    expect(calls("/api/integrations/portals")).toBe(1);
+    await client.createPortalIntegration("99acres");
+    await client.getPortalIntegrationStatuses();
+    expect(calls("/api/integrations/portals")).toBe(2);
+    expect(fetchMock).toHaveBeenCalledWith("/api/integrations/portals/99acres", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/integrations/portals/99acres/test", expect.objectContaining({ method: "POST" }));
+  });
+});

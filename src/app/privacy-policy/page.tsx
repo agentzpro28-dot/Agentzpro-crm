@@ -9,11 +9,11 @@ import styles from "./privacy-policy.module.css";
 export const metadata: Metadata = {
   title: { absolute: "Privacy Policy | AgentzPro" },
   description:
-    "Privacy Policy for AgentzPro, operated by AI Digital Tamizha: what data we collect from Meta, Google Ads, your own tools (webhook) and your team, how we use, store, share and protect it, how Google user data is handled under the Limited Use requirements, and how to delete your data.",
+    "Privacy Policy for AgentzPro, operated by AI Digital Tamizha: what data we collect from Meta, Google Ads, 99acres, your own tools (webhook) and your team, how we use, store, share and protect it, how Google user data is handled under the Limited Use requirements, and how to delete your data.",
 };
 
 const EFFECTIVE_DATE = "September 14, 2026";
-const LAST_UPDATED = "November 12, 2026";
+const LAST_UPDATED = "November 17, 2026";
 const GOOGLE_USER_DATA_POLICY_URL = "https://developers.google.com/terms/api-services-user-data-policy";
 
 const TOC = [
@@ -60,7 +60,7 @@ export default function PrivacyPolicyPage() {
             &quot;our&quot;) collects, uses, stores, shares and protects information in connection with{" "}
             <strong>AgentzPro</strong> (the &quot;Service&quot;), our multi-tenant, business-to-business lead
             management CRM. AgentzPro receives leads from our customers&apos; Meta (Facebook and Instagram) Lead Ads,
-            Google Ads lead forms and their own tools (webhook), and lets their teams manage and follow up on those
+            Google Ads lead forms, 99acres and their own tools (webhook), and lets their teams manage and follow up on those
             leads. This is our own privacy
             policy for our own product. By using the Service, you agree to the practices described here.
           </p>
@@ -130,8 +130,8 @@ export default function PrivacyPolicyPage() {
                 AgentzPro is a <strong>multi-tenant SaaS platform</strong>. Many independent businesses
                 (&quot;companies&quot; or &quot;tenants&quot;) use the Service under their own separate accounts. Each
                 company may connect its own Facebook Pages to receive Meta Lead Ads leads, connect its own Google Ads
-                accounts with Google Sign-In, set up its own Google Ads lead form webhook, and create its own webhook
-                for leads from its own tools. Each company&apos;s data is kept separate, so one company can never see
+                accounts with Google Sign-In, set up its own Google Ads lead form webhook, create its own 99acres
+                webhook URL, and create its own webhook for leads from its own tools. Each company&apos;s data is kept separate, so one company can never see
                 another company&apos;s data.
               </p>
               <p>
@@ -224,20 +224,33 @@ export default function PrivacyPolicyPage() {
                 the company, and the leads are delivered only to that company.
               </p>
 
-              <h3 className={styles.subheading}>3.8 Leads your team adds (call-in leads)</h3>
+              <h3 className={styles.subheading}>3.8 Leads from 99acres</h3>
+              <p>
+                A company owner can create a 99acres webhook URL and ask 99acres to send the company&apos;s 99acres
+                enquiries to it. An enquiry may include the person&apos;s name, phone number and email address, the
+                project or property they asked about, their city, their message and 99acres&apos;s own enquiry ID. If
+                the phone number already belongs to one of the company&apos;s leads, the enquiry is added to that
+                lead&apos;s history instead of creating a second lead. We also keep a copy of each request exactly as
+                99acres sent it, with its technical headers (any passwords or keys in them are hidden), so the company
+                owner can check that leads arrive correctly. Only the company owner can see these copies, and they are
+                deleted automatically after 30 days. Each 99acres webhook URL contains a long secret code unique to the
+                company, and the leads are delivered only to that company.
+              </p>
+
+              <h3 className={styles.subheading}>3.9 Leads your team adds (call-in leads)</h3>
               <p>
                 Team members can add a lead by hand, for example when someone calls the company. They may enter the
                 person&apos;s name, phone number, email address, the platform and ad the person came from, the call
                 date and notes.
               </p>
 
-              <h3 className={styles.subheading}>3.9 Work your team does in the CRM</h3>
+              <h3 className={styles.subheading}>3.10 Work your team does in the CRM</h3>
               <p>
                 We store the statuses, notes, follow-up tasks, reminders and lead assignments your team records, and a
                 timeline of changes to each lead, so your team can see the history of every lead.
               </p>
 
-              <h3 className={styles.subheading}>3.10 Browser notifications</h3>
+              <h3 className={styles.subheading}>3.11 Browser notifications</h3>
               <p>
                 If a team member turns on reminder notifications, their browser gives us a push subscription (a
                 web address and encryption keys for that browser). We use it only to send that person their task
@@ -245,13 +258,13 @@ export default function PrivacyPolicyPage() {
                 browser settings.
               </p>
 
-              <h3 className={styles.subheading}>3.11 Billing information</h3>
+              <h3 className={styles.subheading}>3.12 Billing information</h3>
               <p>
                 When a company subscribes, our payment partner Razorpay collects the payment details. We do not receive
                 or store card or bank details. We keep the plan, number of seats, billing period and payment status.
               </p>
 
-              <h3 className={styles.subheading}>3.12 Technical information</h3>
+              <h3 className={styles.subheading}>3.13 Technical information</h3>
               <p>
                 When you use the Service, we and our hosting providers automatically process technical information
                 such as IP address, browser and device type, server logs and the actions taken in the app. We use it to
@@ -472,7 +485,8 @@ export default function PrivacyPolicyPage() {
               <p>
                 Google refresh tokens are kept only while Google Ads is connected and are deleted on disconnect, as
                 described in Section 6.7. Browser push subscriptions are deleted when they stop working or when you ask
-                us to delete your data.
+                us to delete your data. The copies of 99acres requests described in Section 3.8 are deleted after 30
+                days.
               </p>
             </section>
 

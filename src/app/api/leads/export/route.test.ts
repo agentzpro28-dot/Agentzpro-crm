@@ -126,6 +126,25 @@ describe("authenticated lead CSV route, webhook leads", () => {
   });
 });
 
+describe("authenticated lead CSV route, 99acres leads", () => {
+  it("accepts the 99acres source and writes 99acres's lead id, 99acres and the project; no project leaves Ad Name empty", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    onePage({
+      timezone: "Asia/Kolkata", total: 2,
+      items: [
+        { leadgenId: "ENQ-1", leadName: "Ravi", email: null, phone: "9876543210", facebookPage: "99acres", adName: "Green Valley", adId: null, source: "99acres", status: "New Lead", label: "Warm", leadDate: "2026-11-17T05:00:00Z", assigneeName: null },
+        { leadgenId: "", leadName: "99acres Lead", email: null, phone: "9123456789", facebookPage: "99acres", adName: "-", adId: null, source: "99acres", status: "New Lead", label: "Warm", leadDate: "2026-11-17T05:00:00Z", assigneeName: null },
+      ],
+    });
+    const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all", source: "99acres" }), headers: { "content-type": "application/json" } }));
+    expect(response.status).toBe(200);
+    const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-17T05:00:00Z"));
+    const lines = (await response.text()).replace(/^﻿/, "").split("\r\n");
+    expect(lines[1]).toBe(`ENQ-1,Ravi,"${date}",New Lead,Warm,,9876543210,99acres,Green Valley,,`);
+    expect(lines[2]).toBe(`,99acres Lead,"${date}",New Lead,Warm,,9123456789,99acres,,,`);
+  });
+});
+
 describe("large downloads", () => {
   const row = (index: number) => ({ leadgenId: `lg-${index}`, leadName: `Lead ${index}`, email: null, phone: null, facebookPage: "Page A", adName: "Ad A", adId: "ad-a", source: "facebook", status: "New Lead", label: "Warm", leadDate: "2026-11-11T05:00:00Z", assigneeName: null });
   const rows = (from: number, count: number) => Array.from({ length: count }, (_, offset) => row(from + offset));

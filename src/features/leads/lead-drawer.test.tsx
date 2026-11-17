@@ -1142,7 +1142,7 @@ describe("call-in leads", () => {
     fireEvent.click(screen.getByRole("button", { name: "Source" }));
     const list = await screen.findByRole("listbox");
     // This page's fake API answers none of the connection checks, so every source is kept (an error never hides leads).
-    expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual(["All sources", "Facebook", "Telecaller", "Google Ads", "Webhook"]);
+    expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual(["All sources", "Facebook", "Telecaller", "Google Ads", "Webhook", "99acres"]);
     fireEvent.click(within(list).getByRole("option", { name: "Telecaller" }));
     await waitFor(() => expect(queryCalls(calls).at(-1)?.body).toMatchObject({ source: "telecaller" }));
     fireEvent.click(await screen.findByRole("button", { name: "Remove Source filter: Telecaller" }));
