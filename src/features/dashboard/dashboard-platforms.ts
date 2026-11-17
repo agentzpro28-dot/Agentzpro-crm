@@ -2,8 +2,8 @@ import type { LeadSource } from "@/features/leads/lead-options";
 
 /**
  * The lead platforms the dashboard can show, one at a time, picked with the "Leads" dropdown in the header.
- * A company sees only the platforms it uses (useLeadSources: Telecaller always, Facebook and Google Ads once
- * connected), in this order, and the dashboard opens on the first of them.
+ * A company sees only the platforms it uses (useLeadSources: Telecaller always, Facebook, Google Ads, Webhook and
+ * 99acres once set up), in this order, and the dashboard opens on the first of them.
  *
  * This is the only place that knows how platforms differ. Totals, status, label and timeline are common to
  * every platform; `group` and `items` name the platform's own breakdowns (get_dashboard_platform_stats_v2 returns
@@ -55,6 +55,18 @@ export const DASHBOARD_PLATFORMS = [
     filters: { page: false, ad: false, campaign: false },
     connection: "webhook",
     emptyState: { title: "No webhook leads match these filters", description: "Leads your tools send to your webhook URL show up here instantly." },
+  },
+  {
+    // Enquiries 99acres pushes to the company's portal URL. Totals, status, label and timeline, like Webhook, so
+    // get_dashboard_platform_stats_v2 needs no change. An enquiry whose phone was already in the CRM is a note on that
+    // lead, not a 99acres lead, so it is not counted here.
+    id: "99acres",
+    label: "99acres",
+    group: null,
+    items: null,
+    filters: { page: false, ad: false, campaign: false },
+    connection: null,
+    emptyState: { title: "No 99acres leads match these filters", description: "Enquiries 99acres sends to your 99acres webhook URL show up here instantly." },
   },
   {
     id: "telecaller",

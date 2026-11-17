@@ -2,7 +2,7 @@
 
 import { BellRing, Download, ListTodo, PhoneCall, Plus, Trash2, UserRound } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { LEAD_LABELS, LEAD_STATUSES, isFinalLeadStatus, statusHighlight, type LeadLabel, type LeadSource, type LeadStatus } from "@/features/leads/lead-options";
+import { LEAD_LABELS, LEAD_STATUSES, SOURCES_WITHOUT_PAGE_AD, isFinalLeadStatus, statusHighlight, type LeadLabel, type LeadSource, type LeadStatus } from "@/features/leads/lead-options";
 import { AddCallInLeadDialog } from "@/features/leads/add-call-in-lead-dialog";
 import { LeadDrawer } from "@/features/leads/lead-drawer";
 import { LeadActiveFilters, LeadFilterBar } from "@/features/leads/lead-filters";
@@ -47,10 +47,10 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
   // The leads page opens on ALL leads with no filter applied; the shared hook owns the filter state and its options.
   const filters = useLeadFilters({ autoSelectDefaultAd: false, onError: setError });
   const { quick, status, label, assignee, source, from, to, pageRecordId, adId, campaignId, search } = filters;
-  // Google Ads and webhook leads have no Facebook Page or ad, so Page / Ad show greyed out. On Google Ads the Campaign
-  // filter replaces them.
+  // Google Ads, webhook and 99acres leads have no Facebook Page or ad, so Page / Ad show greyed out. On Google Ads the
+  // Campaign filter replaces them.
   const isGoogleAds = source === "google_ads";
-  const pageAdDisabled = isGoogleAds || source === "custom_webhook";
+  const pageAdDisabled = source !== "" && SOURCES_WITHOUT_PAGE_AD.includes(source);
   const { sources } = useLeadSources();
   // The last successful load (its request and cursor), for the "new leads arrived" bar. Unset while a load runs, or
   // when the cursor could not be read: the bar then stays off and the table works as before.

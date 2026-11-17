@@ -62,12 +62,13 @@ function csvRow(row: LeadRow, date: Intl.DateTimeFormat): string {
   return [row.leadgenId, row.leadName, date.format(new Date(row.leadDate)), row.status, row.label, row.email, row.phone, row.source === "telecaller" ? null : row.facebookPage, exportAdName(row), row.adId, row.assigneeName].map(csvValue).join(",");
 }
 /**
- * A call-in lead's Ad Name cell stays empty. So does a webhook lead's when its tool sent no "source": the table shows a
- * "-" placeholder there, which csvValue's formula guard would otherwise write as '-.
+ * A call-in lead's Ad Name cell stays empty. So does a webhook lead's when its tool sent no "source", and a 99acres
+ * lead's when the portal sent no project: the table shows a "-" placeholder there, which csvValue's formula guard would
+ * otherwise write as '-.
  */
 function exportAdName(row: { source: string; adName: string }): string | null {
   if (row.source === "telecaller") return null;
-  if (row.source === "custom_webhook" && row.adName === "-") return null;
+  if ((row.source === "custom_webhook" || row.source === "99acres") && row.adName === "-") return null;
   return row.adName;
 }
 function csvValue(value: string | null): string { const safe = String(value ?? "").replace(/^[=+\-@\t\r]/, "'$&"); return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; }

@@ -97,11 +97,14 @@ export const TIMELINE_FILTER_TYPES: Record<Exclude<TimelineFilter, "all">, reado
 };
 
 // Where a lead came from. Keep in sync with the `lead_data.lead_source` check constraint in
-// supabase/migrations/20261111170000_custom_webhook_leads.sql. custom_webhook = sent by the company's own tools to its
-// webhook URL (shown as "Webhook").
-export const LEAD_SOURCES = ["facebook", "telecaller", "google_ads", "custom_webhook"] as const;
+// supabase/migrations/20261117120000_portal_leads_99acres.sql. custom_webhook = sent by the company's own tools to its
+// webhook URL (shown as "Webhook"); 99acres = pushed by the 99acres portal (src/lib/portal-leads/portals.ts).
+export const LEAD_SOURCES = ["facebook", "telecaller", "google_ads", "custom_webhook", "99acres"] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
-export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = { facebook: "Facebook", telecaller: "Telecaller", google_ads: "Google Ads", custom_webhook: "Webhook" };
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = { facebook: "Facebook", telecaller: "Telecaller", google_ads: "Google Ads", custom_webhook: "Webhook", "99acres": "99acres" };
+
+/** Sources whose leads have no Facebook Page or ad, so the Page / Ad filters are greyed out and cleared on them. */
+export const SOURCES_WITHOUT_PAGE_AD: readonly LeadSource[] = ["google_ads", "custom_webhook", "99acres"];
 
 // Where a call-in lead can say it came from: the ad platforms only. Telecaller is how it entered, not where the person
 // came from, and Webhook is a delivery channel, not an ad platform. Listed explicitly, so a new lead source never joins

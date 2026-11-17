@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GOOGLE_CAMPAIGN_ID_PATTERN, type LeadLabel, type LeadSource, type LeadStatus } from "@/features/leads/lead-options";
+import { GOOGLE_CAMPAIGN_ID_PATTERN, SOURCES_WITHOUT_PAGE_AD, type LeadLabel, type LeadSource, type LeadStatus } from "@/features/leads/lead-options";
 
 export type Quick = "All Leads" | "Today Leads" | "This Month Leads";
 export type AssigneeOption = { userId: string; fullName: string };
@@ -130,12 +130,12 @@ export function useLeadFilters({ autoSelectDefaultAd, onError }: { autoSelectDef
   const clearPage = () => { setPageRecordId(""); setAdId(""); };
   /**
    * Page and Ad are Facebook-only and Campaign is Google Ads-only, so a source change drops the filters the new
-   * source cannot have: a Facebook Page or ad left over on Google Ads or Webhook (or a campaign on another source)
-   * would silently empty the table while its control is greyed out or gone.
+   * source cannot have: a Facebook Page or ad left over on Google Ads, Webhook or 99acres (or a campaign on another
+   * source) would silently empty the table while its control is greyed out or gone.
    */
   const changeSource = (next: LeadSource | "") => {
     setSource(next);
-    if (next === "google_ads" || next === "custom_webhook") clearPage();
+    if (next && SOURCES_WITHOUT_PAGE_AD.includes(next)) clearPage();
     if (next !== "google_ads") setCampaignId("");
   };
   const hasActiveFilters = Boolean(pageRecordId || adId || campaignId || search.trim() || quick !== "All Leads" || status || label || assignee || source || dateRange);

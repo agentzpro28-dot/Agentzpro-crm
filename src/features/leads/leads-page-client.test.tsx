@@ -7,12 +7,13 @@ import { LeadsPageClient } from "@/features/leads/leads-page-client";
 import { LEADS_CHANGED_EVENT } from "@/components/task-bell";
 
 // The Source filter's connection checks (useLeadSources). By default the company uses every source.
-const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn() }));
-vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook }));
+const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn() }));
+vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook, getPortalIntegrationStatuses: sourceChecks.portals }));
 beforeEach(() => {
   sourceChecks.connection.mockReset().mockResolvedValue({ connectionStatus: "active", pages: [{ id: "page-1", status: "active" }] });
   sourceChecks.google.mockReset().mockResolvedValue({ connection: null, hasWebhook: true, webhookStopped: false, needsReconnect: false });
   sourceChecks.webhook.mockReset().mockResolvedValue({ canManage: true, hasWebhook: true, webhookStopped: false, webhook: null });
+  sourceChecks.portals.mockReset().mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: false }] });
 });
 
 vi.mock("next/link", () => ({
@@ -715,6 +716,49 @@ describe("Webhook source on /leads", () => {
     await waitFor(() => expect(sent.query.at(-1)).toMatchObject({ source: "custom_webhook" }));
     expect(sent.query.at(-1)).not.toHaveProperty("pageRecordId");
     expect(sent.query.at(-1)).not.toHaveProperty("adId");
+    expect(screen.getByRole("button", { name: "Page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ad" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Campaign" })).not.toBeInTheDocument();
+  });
+});
+
+describe("99acres source on /leads", () => {
+  it("offers 99acres only once the company generated its 99acres URL, after Webhook", async () => {
+    stubLeadApi();
+    const { unmount } = render(<LeadsPageClient />);
+    await waitFor(() => expect(sourceChecks.portals).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["All sources", "Facebook", "Telecaller", "Google Ads", "Webhook"]);
+    unmount();
+    sourceChecks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    render(<LeadsPageClient />);
+    await waitFor(() => expect(sourceChecks.portals).toHaveBeenCalledTimes(2));
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["All sources", "Facebook", "Telecaller", "Google Ads", "Webhook", "99acres"]);
+  });
+
+  it("shows a 99acres lead with 99acres's lead id, '99acres' and the project", async () => {
+    stubLeadApi([{ id: "lead-1", leadgenId: "ENQ-1", leadName: "Ravi Kumar", phone: "9876543210", facebookPage: "99acres", adName: "Green Valley", leadDate: "2026-11-17T06:30:00Z", status: "New Lead", label: "Warm", source: "99acres" }]);
+    render(<LeadsPageClient />);
+    const row = (await screen.findByText("Ravi Kumar")).closest("tr")!;
+    expect(within(row).getByText("ENQ-1")).toBeInTheDocument();
+    expect(within(row).getByText("99acres")).toBeInTheDocument();
+    expect(within(row).getByText("Green Valley")).toBeInTheDocument();
+  });
+
+  it("drops a Facebook Page and ad when switching to 99acres, and greys Page and Ad out", async () => {
+    sourceChecks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    const sent = stubLeadApi();
+    await renderLeadsPage(sent);
+    await chooseFilter("Page", "Chennai Homes");
+    await waitFor(() => expect(sent.query.at(-1)).toMatchObject({ pageRecordId: PAGE_ID }));
+    await waitFor(() => expect(sourceChecks.portals).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    await chooseFilter("Source", "99acres");
+    await waitFor(() => expect(sent.query.at(-1)).toMatchObject({ source: "99acres" }));
+    expect(sent.query.at(-1)).not.toHaveProperty("pageRecordId");
     expect(screen.getByRole("button", { name: "Page" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Ad" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Campaign" })).not.toBeInTheDocument();

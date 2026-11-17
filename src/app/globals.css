@@ -4108,6 +4108,8 @@ body.mvp-drawer-resizing .mvp-lead-drawer { animation: none; pointer-events: non
 :root[data-theme="dark"] .integration-card--facebook { --integration-accent: #4599ff; }
 :root[data-theme="dark"] .integration-card--google { --integration-accent: #5bb974; }
 :root[data-theme="dark"] .integration-card--webhook { --integration-accent: #a78bfa; }
+.integration-card--portal { --integration-accent: #d9480f; }
+:root[data-theme="dark"] .integration-card--portal { --integration-accent: #ff8a4c; }
 .integration-card__title { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .integration-card__title > div { min-width: 0; }
 .integration-card__title + .status-badge { flex: 0 0 auto; white-space: nowrap; }
@@ -4116,3 +4118,19 @@ body.mvp-drawer-resizing .mvp-lead-drawer { animation: none; pointer-events: non
 .integration-card__section { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--border); }
 .integration-card__section h3 { margin: 0; font-size: 1rem; }
 .integration-card__section .section-title { margin-bottom: 0; }
+
+/* Portal cards (99acres) on the Integrations page: the support email wraps instead of scrolling sideways, and the raw
+   request log lists each request with its status and an expandable copy of what was sent. */
+.portal-email pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.portal-log-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.portal-log { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.portal-log__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.portal-log__time { color: var(--text); font-size: .875rem; font-weight: 600; }
+.portal-log__method { padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .75rem; font-weight: 700; }
+.portal-log__test { padding: 2px 8px; border-radius: 999px; background: var(--nav-active-bg); color: var(--primary-strong); font-size: .75rem; font-weight: 700; }
+.portal-log__toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--primary-strong); font: inherit; font-size: .8125rem; font-weight: 600; cursor: pointer; }
+.portal-log__toggle:hover { background: var(--nav-active-bg); }
+.portal-log__toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.portal-log__error { margin: 0; color: var(--danger); font-size: .875rem; overflow-wrap: anywhere; }
+.portal-log__details { display: grid; gap: 6px; min-width: 0; }
+.portal-log__details pre { max-height: 280px; margin: 0 0 6px; padding: 10px 12px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
