@@ -1,0 +1,35 @@
+/* The MagicBricks card on the Integrations page: its own styles (red band and icon), the same look as the other cards.
+   Paired with .integration-card so it always outranks that class's default accent, whatever order the CSS loads in. */
+:global(.integration-card).card { --integration-accent: #d8232a; }
+:global(:root[data-theme="dark"]) :global(.integration-card).card { --integration-accent: #ff6b70; }
+
+.step { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--border); }
+.step h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 1rem; }
+.step :global(.button) { border-radius: 10px; font-weight: 600; }
+.step :global(.meta-item) { border-radius: 12px; border-left: 4px solid var(--border-strong); }
+.stepNumber { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--nav-active-bg); border: 1px solid var(--nav-active-border); color: var(--primary-strong); font-size: .8rem; font-weight: 700; }
+
+/* The URL: one rounded box with Show and Copy built in. */
+.copyRow { display: flex; align-items: stretch; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-muted); box-shadow: var(--shadow-field); transition: border-color .15s ease, box-shadow .15s ease; }
+.copyRow:hover { border-color: var(--border-strong); }
+.copyRow:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent); }
+.copyRow input { flex: 1; min-width: 0; min-height: 46px; padding: 0 14px; border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; letter-spacing: .01em; }
+.copyAction { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 92px; padding: 0 16px; border: 0; border-left: 1px solid var(--border); background: var(--surface); color: var(--primary-strong); font: inherit; font-size: .875rem; font-weight: 600; cursor: pointer; transition: background .15s ease, color .15s ease; }
+.copyAction:hover { background: var(--nav-active-bg); }
+.copyAction:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.copyActionDone, .copyActionDone:hover { background: var(--success-bg); color: var(--success); }
+
+/* Leads arriving: the Connected box. */
+.arrival { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--nav-active-border); border-left: 4px solid var(--primary); border-radius: 12px; background: var(--nav-active-bg); }
+.arrivalStatus { display: inline-flex; align-items: center; gap: 6px; color: var(--primary-strong); font-weight: 800; }
+.arrivalStatus svg { flex: none; color: var(--primary); }
+
+/* Failed requests: each with its time and reason. */
+.section { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--border); }
+.section h3 { margin: 0; font-size: 1rem; }
+.section :global(.section-title) { margin-bottom: 0; }
+.logList { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.log { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.logRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.logTime { color: var(--text); font-size: .875rem; font-weight: 600; }
+.logError { margin: 0; color: var(--danger); font-size: .875rem; overflow-wrap: anywhere; }

@@ -586,6 +586,31 @@ describe("99acres leads", () => {
   });
 });
 
+describe("MagicBricks leads", () => {
+  it("shows the MagicBricks lead id, 'MagicBricks' as the page and the project as the ad, with no ad id", async () => {
+    const magicbricks = { leadgen_id: null, google_lead_id: null, google_campaign_id: null, custom_lead_ref: null, custom_source_name: null, portal_lead_ref: null, portal_project_name: null, lead_phone: "9876543210", ad_id: null, ad_name: null, lead_created_time: "2026-11-18T10:00:00Z", status: "New Lead", label: "Warm", label_source: "ai", lead_source: "magicbricks", facebook_pages: null };
+    const leads = builder({ data: [
+      { ...magicbricks, id: "lead-1", lead_name: "Test Buyer", magicbricks_lead_ref: "MB-ENQ-1", magicbricks_project_name: "Sample Towers" },
+      { ...magicbricks, id: "lead-2", lead_name: "MagicBricks Lead", magicbricks_lead_ref: null, magicbricks_project_name: null },
+    ], error: null, count: 2 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
+    expect(leads.select.mock.calls[0][0]).toContain("magicbricks_lead_ref,magicbricks_project_name");
+    expect(result.items[0]).toMatchObject({ source: "magicbricks", leadgenId: "MB-ENQ-1", facebookPage: "MagicBricks", adName: "Sample Towers", adId: null });
+    expect(result.items[1]).toMatchObject({ source: "magicbricks", leadgenId: "", facebookPage: "MagicBricks", adName: "-" });
+  });
+
+  it("filters the MagicBricks source by lead_platform, like any platform", async () => {
+    const leads = builder({ data: [], error: null, count: 0 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    await queryLeads(context, { source: "magicbricks" });
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.eq).toHaveBeenCalledWith("lead_platform", "magicbricks");
+  });
+});
+
 describe("the company timezone of a signed-in request", () => {
   it("uses the timezone the login check already read, with no second read of the company row", async () => {
     const leads = builder({ data: [], error: null, count: 0 });

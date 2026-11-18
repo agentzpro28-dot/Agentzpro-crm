@@ -5,9 +5,9 @@ import { CHART_SETTLE_MS } from "@/features/dashboard/dashboard-download";
 import { DashboardPageClient } from "@/features/dashboard/dashboard-page-client";
 import { DASHBOARD_PLATFORMS } from "@/features/dashboard/dashboard-platforms";
 
-const mocks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn() }));
+const mocks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn() }));
 vi.mock("next/link", () => ({ default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a> }));
-vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: mocks.connection, getGoogleAdsOverview: mocks.google, getCustomWebhookOverview: mocks.webhook, getPortalIntegrationStatuses: mocks.portals }));
+vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: mocks.connection, getGoogleAdsOverview: mocks.google, getCustomWebhookOverview: mocks.webhook, getPortalIntegrationStatuses: mocks.portals, getMagicbricksStatus: mocks.magicbricks }));
 vi.mock("@/features/dashboard/navigation", () => ({ reloadPage: vi.fn(), goToLogin: vi.fn() }));
 // recharts needs real layout; the charts' own maths is covered by dashboard-format tests and the browser run.
 vi.mock("@/features/dashboard/dashboard-charts", () => ({
@@ -68,6 +68,7 @@ beforeEach(() => {
   mocks.google.mockReset().mockResolvedValue({ ...GOOGLE_SIGNED_IN, hasWebhook: true });
   mocks.webhook.mockReset().mockResolvedValue(WEBHOOK_ON);
   mocks.portals.mockReset().mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: false }] });
+  mocks.magicbricks.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
   window.history.replaceState(null, "", "/dashboard");
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -398,6 +399,7 @@ describe("dashboard platform switch", () => {
   it.each(DASHBOARD_PLATFORMS.map((platform) => [platform.id, platform.label] as const))("downloads the %s dashboard as a PDF named after it", async (id, label) => {
     // Every platform in use, 99acres included (it is set up only on request elsewhere in this file).
     mocks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    mocks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
     useControlledClock();
     let titleWhilePrinting = "";
     const print = vi.fn(() => { titleWhilePrinting = document.title; });
@@ -540,6 +542,25 @@ describe("only the platforms the company uses", () => {
     await screen.findByTestId("month-leads");
     expect(await listedPlatforms()).toContain("99acres");
   });
+
+  it("lists MagicBricks only once the company generated its MagicBricks URL, after 99acres and before Telecaller", async () => {
+    mocks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    const { unmount } = render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).not.toContain("MagicBricks");
+    unmount();
+    mocks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "99acres", "MagicBricks", "Telecaller"]);
+  });
+
+  it("keeps MagicBricks when its check failed, without hiding any other platform", async () => {
+    mocks.magicbricks.mockRejectedValue(new Error("network"));
+    render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "MagicBricks", "Telecaller"]);
+  });
 });
 
 describe("dashboard 99acres view", () => {
@@ -549,6 +570,22 @@ describe("dashboard 99acres view", () => {
     await screen.findByTestId("month-leads");
     expect(statBodies[0]).toMatchObject({ platform: "99acres" });
     expect(screen.getByText("This Month 99acres Leads")).toBeInTheDocument();
+    expect(screen.getByTestId("Leads by label")).toBeInTheDocument();
+    expect(screen.getByTestId("Leads by status")).toBeInTheDocument();
+    expect(screen.queryByTestId("Leads by Facebook Page")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Campaign" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Integrations|Connection|Reconnect/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("dashboard MagicBricks view", () => {
+  it("shows MagicBricks leads with the common charts only, no Page, Ad or Campaign filter and no connection warning", async () => {
+    mocks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    render(<DashboardPageClient initialPlatform="magicbricks" />);
+    await screen.findByTestId("month-leads");
+    expect(statBodies[0]).toMatchObject({ platform: "magicbricks" });
+    expect(screen.getByText("This Month MagicBricks Leads")).toBeInTheDocument();
     expect(screen.getByTestId("Leads by label")).toBeInTheDocument();
     expect(screen.getByTestId("Leads by status")).toBeInTheDocument();
     expect(screen.queryByTestId("Leads by Facebook Page")).not.toBeInTheDocument();

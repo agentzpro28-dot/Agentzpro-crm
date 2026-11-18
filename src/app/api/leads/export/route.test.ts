@@ -145,6 +145,25 @@ describe("authenticated lead CSV route, 99acres leads", () => {
   });
 });
 
+describe("authenticated lead CSV route, MagicBricks leads", () => {
+  it("accepts the MagicBricks source and writes the MagicBricks lead id, MagicBricks and the project; no project leaves Ad Name empty", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    onePage({
+      timezone: "Asia/Kolkata", total: 2,
+      items: [
+        { leadgenId: "MB-ENQ-1", leadName: "Test Buyer", email: null, phone: "9876543210", facebookPage: "MagicBricks", adName: "Sample Towers", adId: null, source: "magicbricks", status: "New Lead", label: "Warm", leadDate: "2026-11-18T05:00:00Z", assigneeName: null },
+        { leadgenId: "", leadName: "MagicBricks Lead", email: null, phone: "9123456789", facebookPage: "MagicBricks", adName: "-", adId: null, source: "magicbricks", status: "New Lead", label: "Warm", leadDate: "2026-11-18T05:00:00Z", assigneeName: null },
+      ],
+    });
+    const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all", source: "magicbricks" }), headers: { "content-type": "application/json" } }));
+    expect(response.status).toBe(200);
+    const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-18T05:00:00Z"));
+    const lines = (await response.text()).replace(/^﻿/, "").split("\r\n");
+    expect(lines[1]).toBe(`MB-ENQ-1,Test Buyer,"${date}",New Lead,Warm,,9876543210,MagicBricks,Sample Towers,,`);
+    expect(lines[2]).toBe(`,MagicBricks Lead,"${date}",New Lead,Warm,,9123456789,MagicBricks,,,`);
+  });
+});
+
 describe("large downloads", () => {
   const row = (index: number) => ({ leadgenId: `lg-${index}`, leadName: `Lead ${index}`, email: null, phone: null, facebookPage: "Page A", adName: "Ad A", adId: "ad-a", source: "facebook", status: "New Lead", label: "Warm", leadDate: "2026-11-11T05:00:00Z", assigneeName: null });
   const rows = (from: number, count: number) => Array.from({ length: count }, (_, offset) => row(from + offset));

@@ -69,6 +69,8 @@ function csvRow(row: LeadRow, date: Intl.DateTimeFormat): string {
 function exportAdName(row: { source: string; adName: string }): string | null {
   if (row.source === "telecaller") return null;
   if ((row.source === "custom_webhook" || row.source === "99acres") && row.adName === "-") return null;
+  // A MagicBricks lead's too, when MagicBricks sent no project.
+  if (row.source === "magicbricks" && row.adName === "-") return null;
   return row.adName;
 }
 function csvValue(value: string | null): string { const safe = String(value ?? "").replace(/^[=+\-@\t\r]/, "'$&"); return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; }
