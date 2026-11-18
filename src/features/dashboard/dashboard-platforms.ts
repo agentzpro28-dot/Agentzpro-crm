@@ -69,6 +69,18 @@ export const DASHBOARD_PLATFORMS = [
     emptyState: { title: "No 99acres leads match these filters", description: "Enquiries 99acres sends to your 99acres webhook URL show up here instantly." },
   },
   {
+    // Enquiries MagicBricks pushes to the company's MagicBricks URL. Totals, status, label and timeline, so
+    // get_dashboard_platform_stats_v2 needs no change. An enquiry whose phone was already in the CRM is a note on that
+    // lead, not a MagicBricks lead, so it is not counted here.
+    id: "magicbricks",
+    label: "MagicBricks",
+    group: null,
+    items: null,
+    filters: { page: false, ad: false, campaign: false },
+    connection: null,
+    emptyState: { title: "No MagicBricks leads match these filters", description: "Enquiries MagicBricks sends to your MagicBricks webhook URL show up here instantly." },
+  },
+  {
     id: "telecaller",
     label: "Telecaller",
     group: null,

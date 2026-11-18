@@ -1,5 +1,6 @@
 import type { ConnectionOverview, EligibleFacebookPage } from "@/lib/types";
 import type { PortalId, PortalIntegrationOverview, PortalIntegrationStatus } from "@/lib/portal-leads/portals";
+import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 
 type ApiErrorPayload = { error?: { message?: string; code?: string; details?: Record<string, unknown> } };
 
@@ -123,6 +124,12 @@ export async function getCustomWebhookOverview(options: { details?: boolean } = 
 }
 export async function createCustomWebhook(): Promise<{ url: string }> { return changeConnection("/api/integrations/custom-webhook", { method: "POST", body: "{}" }); }
 export async function stopCustomWebhook(): Promise<{ stopped: boolean }> { return changeConnection("/api/integrations/custom-webhook", { method: "DELETE" }); }
+
+/** Whether this company created its MagicBricks URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
+export async function getMagicbricksStatus(): Promise<MagicbricksOverview> { return sharedConnectionCheck<MagicbricksOverview>("/api/integrations/magicbricks", false); }
+/** The Integrations card's MagicBricks view: always read fresh, with the owner's URL and the last 10 failed requests. */
+export async function getMagicbricksOverview(): Promise<MagicbricksOverview> { return request<MagicbricksOverview>("/api/integrations/magicbricks?details=1"); }
+export async function createMagicbricksIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/magicbricks", { method: "POST", body: "{}" }); }
 
 /** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
 export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }

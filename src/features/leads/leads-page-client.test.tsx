@@ -7,13 +7,14 @@ import { LeadsPageClient } from "@/features/leads/leads-page-client";
 import { LEADS_CHANGED_EVENT } from "@/components/task-bell";
 
 // The Source filter's connection checks (useLeadSources). By default the company uses every source.
-const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn() }));
-vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook, getPortalIntegrationStatuses: sourceChecks.portals }));
+const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn() }));
+vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook, getPortalIntegrationStatuses: sourceChecks.portals, getMagicbricksStatus: sourceChecks.magicbricks }));
 beforeEach(() => {
   sourceChecks.connection.mockReset().mockResolvedValue({ connectionStatus: "active", pages: [{ id: "page-1", status: "active" }] });
   sourceChecks.google.mockReset().mockResolvedValue({ connection: null, hasWebhook: true, webhookStopped: false, needsReconnect: false });
   sourceChecks.webhook.mockReset().mockResolvedValue({ canManage: true, hasWebhook: true, webhookStopped: false, webhook: null });
   sourceChecks.portals.mockReset().mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: false }] });
+  sourceChecks.magicbricks.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
 });
 
 vi.mock("next/link", () => ({
@@ -758,6 +759,50 @@ describe("99acres source on /leads", () => {
     await act(async () => { await Promise.resolve(); });
     await chooseFilter("Source", "99acres");
     await waitFor(() => expect(sent.query.at(-1)).toMatchObject({ source: "99acres" }));
+    expect(sent.query.at(-1)).not.toHaveProperty("pageRecordId");
+    expect(screen.getByRole("button", { name: "Page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ad" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Campaign" })).not.toBeInTheDocument();
+  });
+});
+
+describe("MagicBricks source on /leads", () => {
+  it("offers MagicBricks only once the company generated its MagicBricks URL, after 99acres", async () => {
+    stubLeadApi();
+    sourceChecks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    const { unmount } = render(<LeadsPageClient />);
+    await waitFor(() => expect(sourceChecks.magicbricks).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["All sources", "Facebook", "Telecaller", "Google Ads", "Webhook", "99acres"]);
+    unmount();
+    sourceChecks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    render(<LeadsPageClient />);
+    await waitFor(() => expect(sourceChecks.magicbricks).toHaveBeenCalledTimes(2));
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["All sources", "Facebook", "Telecaller", "Google Ads", "Webhook", "99acres", "MagicBricks"]);
+  });
+
+  it("shows a MagicBricks lead with the MagicBricks lead id, 'MagicBricks' and the project", async () => {
+    stubLeadApi([{ id: "lead-1", leadgenId: "MB-ENQ-1", leadName: "Test Buyer", phone: "9876543210", facebookPage: "MagicBricks", adName: "Sample Towers", leadDate: "2026-11-18T06:30:00Z", status: "New Lead", label: "Warm", source: "magicbricks" }]);
+    render(<LeadsPageClient />);
+    const row = (await screen.findByText("Test Buyer")).closest("tr")!;
+    expect(within(row).getByText("MB-ENQ-1")).toBeInTheDocument();
+    expect(within(row).getByText("MagicBricks")).toBeInTheDocument();
+    expect(within(row).getByText("Sample Towers")).toBeInTheDocument();
+  });
+
+  it("drops a Facebook Page and ad when switching to MagicBricks, and greys Page and Ad out", async () => {
+    sourceChecks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    const sent = stubLeadApi();
+    await renderLeadsPage(sent);
+    await chooseFilter("Page", "Chennai Homes");
+    await waitFor(() => expect(sent.query.at(-1)).toMatchObject({ pageRecordId: PAGE_ID }));
+    await waitFor(() => expect(sourceChecks.magicbricks).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    await chooseFilter("Source", "MagicBricks");
+    await waitFor(() => expect(sent.query.at(-1)).toMatchObject({ source: "magicbricks" }));
     expect(sent.query.at(-1)).not.toHaveProperty("pageRecordId");
     expect(screen.getByRole("button", { name: "Page" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Ad" })).toBeDisabled();
