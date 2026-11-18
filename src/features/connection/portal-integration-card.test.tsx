@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/leads/99acres/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const FAILED = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "No mobile number or email" as const };
+const FAILED = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" as const };
 const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
@@ -83,7 +83,7 @@ describe("PortalIntegrationCard (99acres)", () => {
     const items = within(screen.getByRole("list")).getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText("Failed")).toBeInTheDocument();
-    expect(within(items[0]).getByText("No mobile number or email")).toBeInTheDocument();
+    expect(within(items[0]).getByText("Mobile number or email not found")).toBeInTheDocument();
     expect(within(items[1]).getByText("Unsupported format")).toBeInTheDocument();
     expect(screen.queryByText(/Send mobile or email/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View" })).not.toBeInTheDocument();

@@ -57,7 +57,7 @@ describe("PortalIntegrationService.getOverview", () => {
       portal: "99acres", canManage: true, hasIntegration: true,
       integration: {
         url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z",
-        failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "No mobile number or email" }],
+        failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" }],
       },
     });
     expect(failed.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
@@ -79,7 +79,7 @@ describe("PortalIntegrationService.getOverview", () => {
 
 describe("portalFailureReason", () => {
   it("turns each stored error_message, exactly as the intake writes it, into a short label for the owner", () => {
-    expect(portalFailureReason("Send mobile or email.")).toBe("No mobile number or email");
+    expect(portalFailureReason("Send mobile or email.")).toBe("Mobile number or email not found");
     for (const message of [
       "Send JSON, form data or URL parameters.", "Send the lead as a JSON object.", "Send one lead per request.",
       "Send 100 fields or fewer.", "Field names must be 100 characters or fewer.", "The request could not be read.",
@@ -102,7 +102,7 @@ describe("portalFailureReason", () => {
       }
       throw new Error("expected the mapper to refuse this request");
     };
-    expect(reasonFor(post(JSON.stringify({ name: "No Contact" })))).toBe("No mobile number or email");
+    expect(reasonFor(post(JSON.stringify({ name: "No Contact" })))).toBe("Mobile number or email not found");
     expect(reasonFor(post("<lead/>", "application/xml"))).toBe("Unsupported format");
     expect(reasonFor(post("not json"))).toBe("Unsupported format");
     expect(reasonFor(post(JSON.stringify([{ mobile: "9876543210" }])))).toBe("Unsupported format");

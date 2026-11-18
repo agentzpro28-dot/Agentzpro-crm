@@ -19,7 +19,7 @@ const FAILED_REQUEST_COLUMNS = "id,created_at,error_message";
  * mapper) → the short label the owner sees. Matched exactly; anything not listed shows as "Not saved".
  */
 const FAILURE_REASONS: ReadonlyMap<string, PortalFailureReason> = new Map<string, PortalFailureReason>([
-  ["Send mobile or email.", "No mobile number or email"],
+  ["Send mobile or email.", "Mobile number or email not found"],
   ["Send JSON, form data or URL parameters.", "Unsupported format"],
   ["Send the lead as a JSON object.", "Unsupported format"],
   ["Send one lead per request.", "Unsupported format"],

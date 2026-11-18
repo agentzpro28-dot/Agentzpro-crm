@@ -28,7 +28,7 @@ export function parsePortalId(value: unknown): PortalId | null {
 export interface PortalIntegrationStatus { portal: PortalId; hasIntegration: boolean }
 
 /** Why a portal request could not be saved, as the Integrations card shows it to the owner. */
-export type PortalFailureReason = "No mobile number or email" | "Unsupported format" | "Server error" | "Old webhook URL" | "Not saved";
+export type PortalFailureReason = "Mobile number or email not found" | "Unsupported format" | "Server error" | "Old webhook URL" | "Not saved";
 
 /**
  * One request the portal sent that could not be saved, for the Integrations card (owner only): when, and why. The raw
