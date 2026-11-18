@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 const EFFECTIVE_DATE = "September 14, 2026";
-const LAST_UPDATED = "November 17, 2026";
+const LAST_UPDATED = "November 18, 2026";
 const GOOGLE_USER_DATA_POLICY_URL = "https://developers.google.com/terms/api-services-user-data-policy";
 
 const TOC = [
@@ -231,9 +231,10 @@ export default function PrivacyPolicyPage() {
                 project or property they asked about, their city, their message and 99acres&apos;s own enquiry ID. If
                 the phone number already belongs to one of the company&apos;s leads, the enquiry is added to that
                 lead&apos;s history instead of creating a second lead. We also keep a copy of each request exactly as
-                99acres sent it, with its technical headers (any passwords or keys in them are hidden), so the company
-                owner can check that leads arrive correctly. Only the company owner can see these copies, and they are
-                deleted automatically after 30 days. Each 99acres webhook URL contains a long secret code unique to the
+                99acres sent it, with its technical headers (any passwords or keys in them are hidden), so that an
+                enquiry that could not be saved is never lost and we can fix the problem. The company owner sees the
+                time and reason of each failed request; the copies themselves are used only by our support team to fix
+                a problem, and they are deleted automatically after 30 days. Each 99acres webhook URL contains a long secret code unique to the
                 company, and the leads are delivered only to that company.
               </p>
 

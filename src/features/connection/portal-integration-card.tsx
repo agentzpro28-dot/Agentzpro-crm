@@ -1,27 +1,21 @@
 "use client";
 
-import { Building2, Check, ChevronDown, ChevronUp, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, X } from "lucide-react";
+import { Building2, Check, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import { formatDateTime } from "@/lib/date-utils";
-import { PORTALS, type PortalId, type PortalIntegrationOverview, type PortalWebhookLogView } from "@/lib/portal-leads/portals";
+import { PORTALS, type PortalId, type PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 import { createPortalIntegration, getPortalIntegrationOverview } from "@/services/crm-api-client";
 
 type Busy = "create" | "replace" | "refresh" | null;
 type Message = { tone: "success" | "danger" | "warning" | "info"; text: string };
 
-const LOG_STATUS: Record<PortalWebhookLogView["status"], { label: string; tone: "success" | "info" | "danger" | "warning" }> = {
-  processed: { label: "Saved", tone: "success" },
-  duplicate: { label: "Already in CRM", tone: "info" },
-  failed: { label: "Failed", tone: "danger" },
-  received: { label: "Not processed", tone: "warning" },
-};
-
 /**
- * A real-estate portal (99acres) on the Integrations page: the company's own secret webhook URL, the 3 setup steps, and
- * the last 10 raw requests so the owner sees exactly what the portal sends. The URL is the only secret, so it is shown
- * only to the owner, hidden until asked.
+ * A real-estate portal (99acres) on the Integrations page: the company's own secret webhook URL and the 3 setup steps.
+ * Only when a request could not be saved does a "Failed requests" list appear (the last 10: when and why), so the owner
+ * knows to contact us; the raw requests stay with our support team. The URL is the only secret, so it is shown only to
+ * the owner, hidden until asked.
  */
 export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const { label } = PORTALS[portal];
@@ -121,50 +115,23 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
             <span className="field-help" title={formatDateTime(integration.lastLeadAt)}>Last lead received {relativeTime(integration.lastLeadAt)}</span>
           </div> : <div className="meta-list"><div className="meta-item"><span>Status</span><strong>Waiting for first lead</strong></div></div>}
         <p className="field-help">The status turns Connected when {label} sends the first lead.</p>
+        {integration ? <div className="button-group">
+          <button className="button button--secondary" type="button" disabled={busy === "refresh"} onClick={() => void run("refresh", reload)}>{busy === "refresh" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Refresh</button>
+        </div> : null}
       </div>
 
-      {integration ? <div className="integration-card__section">
-        <div className="section-title"><div><h3>Recent requests</h3><p>The last 10 requests to this URL, exactly as {label} sent them.</p></div>
-          <button className="button button--secondary" type="button" disabled={busy === "refresh"} onClick={() => void run("refresh", reload)}>{busy === "refresh" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Refresh</button>
-        </div>
-        {integration.logs.length === 0 ? <p className="field-help">No requests yet.</p>
-          : <ul className="portal-log-list">{integration.logs.map((entry) => <PortalLogItem key={entry.id} entry={entry} />)}</ul>}
+      {integration && integration.failedRequests.length > 0 ? <div className="integration-card__section">
+        <div className="section-title"><div><h3>Failed requests</h3><p>These {label} enquiries could not be saved. Contact AgentzPro support with the time shown.</p></div></div>
+        <ul className="portal-log-list">{integration.failedRequests.map((entry) => <li key={entry.id} className="portal-log">
+          <div className="portal-log__row">
+            <span className="portal-log__time">{formatDateTime(entry.createdAt)}</span>
+            <StatusBadge tone="danger">Failed</StatusBadge>
+          </div>
+          <p className="portal-log__error">{entry.errorMessage}</p>
+        </li>)}</ul>
       </div> : null}
     </> : null}
   </div></section>;
-}
-
-/** One raw request: when, how, what became of it, and on "View" the exact body, URL parameters and headers. */
-function PortalLogItem({ entry }: { entry: PortalWebhookLogView }) {
-  const [open, setOpen] = useState(false);
-  const detailsId = useId();
-  const status = LOG_STATUS[entry.status];
-  return <li className="portal-log">
-    <div className="portal-log__row">
-      <span className="portal-log__time">{formatDateTime(entry.createdAt)}</span>
-      <span className="portal-log__method">{entry.method}</span>
-      <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-      <button className="portal-log__toggle" type="button" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen((current) => !current)}>{open ? <ChevronUp aria-hidden="true" size={16} /> : <ChevronDown aria-hidden="true" size={16} />}{open ? "Hide" : "View"}</button>
-    </div>
-    {entry.errorMessage ? <p className="portal-log__error">{entry.errorMessage}</p> : null}
-    {open ? <div className="portal-log__details" id={detailsId}>
-      <span className="webhook-sample__label">Body{entry.bodyCut ? " (first 20,000 characters)" : ""}</span>
-      <pre>{entry.rawBody ? prettyBody(entry.rawBody) : "(empty)"}</pre>
-      <span className="webhook-sample__label">URL parameters</span>
-      <pre>{Object.keys(entry.queryParams).length > 0 ? JSON.stringify(entry.queryParams, null, 2) : "(none)"}</pre>
-      <span className="webhook-sample__label">Headers</span>
-      <pre>{JSON.stringify(entry.headers, null, 2)}</pre>
-    </div> : null}
-  </li>;
-}
-
-/** JSON is shown indented; anything else (form data, another format) exactly as sent. */
-export function prettyBody(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }
 
 /** "just now", "5 minutes ago", "yesterday", "3 days ago". */

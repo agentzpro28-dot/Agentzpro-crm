@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 type Params = { params: Promise<{ portal: string }> };
 
 // One portal's integration (99acres, ...). GET: the Integrations card; with ?details=1 the owner also gets the webhook
-// URL, the last lead time and the last 10 raw requests. POST: create the URL, or replace it (owner only).
+// URL, the last lead time and the last 10 failed requests. POST: create the URL, or replace it (owner only).
 export async function GET(request: Request, { params }: Params) {
   try {
     const url = new URL(request.url);
