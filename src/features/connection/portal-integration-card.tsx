@@ -127,7 +127,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
             <span className="portal-log__time">{formatDateTime(entry.createdAt)}</span>
             <StatusBadge tone="danger">Failed</StatusBadge>
           </div>
-          <p className="portal-log__error">{entry.errorMessage}</p>
+          <p className="portal-log__error">{entry.reason}</p>
         </li>)}</ul>
       </div> : null}
     </> : null}

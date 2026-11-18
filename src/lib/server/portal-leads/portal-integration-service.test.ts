@@ -7,7 +7,8 @@ vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({
 vi.mock("@/lib/server/token-crypto", () => ({ encryptToken: (value: string) => `enc:${value}`, decryptToken: (value: string) => { if (value === "unreadable") throw new Error("bad key"); return value.replace(/^enc:/, ""); } }));
 
 import { hashPortalWebhookToken } from "@/lib/server/portal-leads/portal-lead-intake-service";
-import { PortalIntegrationService } from "@/lib/server/portal-leads/portal-integration-service";
+import { PortalIntegrationService, portalFailureReason } from "@/lib/server/portal-leads/portal-integration-service";
+import { PortalLeadPayloadError, mapPortalLead } from "@/lib/server/portal-leads/portal-lead-mapper";
 
 const ORIGIN = "https://crm.example.com";
 const OWNER = { tenantId: "tenant-a", userId: "owner-a", membershipRole: "owner" };
@@ -56,7 +57,7 @@ describe("PortalIntegrationService.getOverview", () => {
       portal: "99acres", canManage: true, hasIntegration: true,
       integration: {
         url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z",
-        failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", errorMessage: "Send mobile or email." }],
+        failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "No mobile number or email" }],
       },
     });
     expect(failed.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
@@ -72,7 +73,41 @@ describe("PortalIntegrationService.getOverview", () => {
     mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row(), error: null }) : failed);
     const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
     expect(failed.select).toHaveBeenCalledWith("id,created_at,error_message");
-    expect(overview.integration?.failedRequests).toEqual([{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", errorMessage: "The request could not be saved." }]);
+    expect(overview.integration?.failedRequests).toEqual([{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Not saved" }]);
+  });
+});
+
+describe("portalFailureReason", () => {
+  it("turns each stored error_message, exactly as the intake writes it, into a short label for the owner", () => {
+    expect(portalFailureReason("Send mobile or email.")).toBe("No mobile number or email");
+    for (const message of [
+      "Send JSON, form data or URL parameters.", "Send the lead as a JSON object.", "Send one lead per request.",
+      "Send 100 fields or fewer.", "Field names must be 100 characters or fewer.", "The request could not be read.",
+    ]) expect(portalFailureReason(message)).toBe("Unsupported format");
+    expect(portalFailureReason("Temporary failure on our side. The portal may send it again.")).toBe("Server error");
+    expect(portalFailureReason("This webhook URL is no longer active.")).toBe("Old webhook URL");
+    expect(portalFailureReason(null)).toBe("Not saved");
+    expect(portalFailureReason("")).toBe("Not saved");
+    expect(portalFailureReason("something new")).toBe("Not saved");
+  });
+
+  it("labels every refusal the real mapper produces (a reworded mapper message fails here)", () => {
+    const post = (rawBody: string, contentType = "application/json") => ({ method: "POST" as const, contentType, query: {}, rawBody });
+    const reasonFor = (request: ReturnType<typeof post>) => {
+      try {
+        mapPortalLead("99acres", request);
+      } catch (error) {
+        if (error instanceof PortalLeadPayloadError) return portalFailureReason(error.message);
+        throw error;
+      }
+      throw new Error("expected the mapper to refuse this request");
+    };
+    expect(reasonFor(post(JSON.stringify({ name: "No Contact" })))).toBe("No mobile number or email");
+    expect(reasonFor(post("<lead/>", "application/xml"))).toBe("Unsupported format");
+    expect(reasonFor(post("not json"))).toBe("Unsupported format");
+    expect(reasonFor(post(JSON.stringify([{ mobile: "9876543210" }])))).toBe("Unsupported format");
+    expect(reasonFor(post(JSON.stringify(Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`f${index}`, "x"])))))).toBe("Unsupported format");
+    expect(reasonFor(post(JSON.stringify({ ["k".repeat(101)]: "x", mobile: "9876543210" })))).toBe("Unsupported format");
   });
 
   it("never gives an employee the URL or the raw requests", async () => {

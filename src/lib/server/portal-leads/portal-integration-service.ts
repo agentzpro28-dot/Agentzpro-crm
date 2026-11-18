@@ -3,8 +3,9 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { AppError } from "@/lib/server/app-error";
 import { requireCrmAccess } from "@/lib/server/auth/access";
-import { PORTAL_IDS, PORTALS, type PortalFailedRequestView, type PortalId, type PortalIntegrationOverview, type PortalIntegrationStatus } from "@/lib/portal-leads/portals";
+import { PORTAL_IDS, PORTALS, type PortalFailedRequestView, type PortalFailureReason, type PortalId, type PortalIntegrationOverview, type PortalIntegrationStatus } from "@/lib/portal-leads/portals";
 import { hashPortalWebhookToken } from "@/lib/server/portal-leads/portal-lead-intake-service";
+import { MAX_PORTAL_FIELD_KEY_LENGTH, MAX_PORTAL_LEAD_FIELDS } from "@/lib/server/portal-leads/portal-lead-mapper";
 import { getSupabaseAdminClient } from "@/lib/server/supabase-admin";
 import { decryptToken, encryptToken } from "@/lib/server/token-crypto";
 
@@ -12,7 +13,27 @@ import { decryptToken, encryptToken } from "@/lib/server/token-crypto";
 export const PORTAL_FAILED_REQUEST_LIMIT = 10;
 /** Only when and why: the raw request (body, URL parameters, headers) never leaves the server. */
 const FAILED_REQUEST_COLUMNS = "id,created_at,error_message";
-const FAILED_REQUEST_FALLBACK = "The request could not be saved.";
+
+/**
+ * The stored error_message of a failed request (the webhook's answer to the portal, written by the intake and the
+ * mapper) → the short label the owner sees. Matched exactly; anything not listed shows as "Not saved".
+ */
+const FAILURE_REASONS: ReadonlyMap<string, PortalFailureReason> = new Map<string, PortalFailureReason>([
+  ["Send mobile or email.", "No mobile number or email"],
+  ["Send JSON, form data or URL parameters.", "Unsupported format"],
+  ["Send the lead as a JSON object.", "Unsupported format"],
+  ["Send one lead per request.", "Unsupported format"],
+  [`Send ${MAX_PORTAL_LEAD_FIELDS} fields or fewer.`, "Unsupported format"],
+  [`Field names must be ${MAX_PORTAL_FIELD_KEY_LENGTH} characters or fewer.`, "Unsupported format"],
+  ["The request could not be read.", "Unsupported format"],
+  ["Temporary failure on our side. The portal may send it again.", "Server error"],
+  ["This webhook URL is no longer active.", "Old webhook URL"],
+]);
+
+/** The label for a failed request's stored error_message. */
+export function portalFailureReason(errorMessage: string | null): PortalFailureReason {
+  return (errorMessage && FAILURE_REASONS.get(errorMessage)) || "Not saved";
+}
 
 type IntegrationRow = { encrypted_url_token: string; is_active: boolean; last_received_at: string | null; url_rotated_at: string | null; id: string };
 type FailedRequestRow = { id: string; created_at: string; error_message: string | null };
@@ -102,7 +123,7 @@ export class PortalIntegrationService {
 }
 
 function toFailedRequestView(row: FailedRequestRow): PortalFailedRequestView {
-  return { id: row.id, createdAt: row.created_at, errorMessage: row.error_message || FAILED_REQUEST_FALLBACK };
+  return { id: row.id, createdAt: row.created_at, reason: portalFailureReason(row.error_message) };
 }
 
 /**

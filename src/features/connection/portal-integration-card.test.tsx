@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/leads/99acres/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const FAILED = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", errorMessage: "Send mobile or email." };
+const FAILED = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "No mobile number or email" as const };
 const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
@@ -76,15 +76,16 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("lists only the failed requests, each with its time and reason, and never the raw request", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [FAILED, { id: "log-2", createdAt: "2026-11-16T08:00:00Z", errorMessage: "Send JSON, form data or URL parameters." }] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [FAILED, { id: "log-2", createdAt: "2026-11-16T08:00:00Z", reason: "Unsupported format" }] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByRole("heading", { name: "Failed requests" })).toBeInTheDocument();
     expect(screen.getByText("These 99acres enquiries could not be saved. Contact AgentzPro support with the time shown.")).toBeInTheDocument();
     const items = within(screen.getByRole("list")).getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText("Failed")).toBeInTheDocument();
-    expect(within(items[0]).getByText("Send mobile or email.")).toBeInTheDocument();
-    expect(within(items[1]).getByText("Send JSON, form data or URL parameters.")).toBeInTheDocument();
+    expect(within(items[0]).getByText("No mobile number or email")).toBeInTheDocument();
+    expect(within(items[1]).getByText("Unsupported format")).toBeInTheDocument();
+    expect(screen.queryByText(/Send mobile or email/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View" })).not.toBeInTheDocument();
     expect(screen.queryByText("Recent requests")).not.toBeInTheDocument();
   });
