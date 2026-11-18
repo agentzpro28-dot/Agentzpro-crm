@@ -27,6 +27,9 @@ export function parsePortalId(value: unknown): PortalId | null {
 /** Which portals a company has set up: the /leads Source filter and the dashboard's platform switch. */
 export interface PortalIntegrationStatus { portal: PortalId; hasIntegration: boolean }
 
+/** Why a portal request could not be saved, as the Integrations card shows it to the owner. */
+export type PortalFailureReason = "No mobile number or email" | "Unsupported format" | "Server error" | "Old webhook URL" | "Not saved";
+
 /**
  * One request the portal sent that could not be saved, for the Integrations card (owner only): when, and why. The raw
  * request itself never reaches the browser; it stays in the log for our support team.
@@ -34,7 +37,7 @@ export interface PortalIntegrationStatus { portal: PortalId; hasIntegration: boo
 export interface PortalFailedRequestView {
   id: string;
   createdAt: string;
-  errorMessage: string;
+  reason: PortalFailureReason;
 }
 
 export interface PortalIntegrationOverview {
