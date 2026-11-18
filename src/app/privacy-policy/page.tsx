@@ -297,7 +297,7 @@ export default function PrivacyPolicyPage() {
                 <li>receive, show and organise each company&apos;s leads, and let its team update, assign and follow up on them;</li>
                 <li>show which campaign, ad group or ad each lead came from;</li>
                 <li>
-                  give each lead from Meta, Google Ads or a company&apos;s webhook an AI label (Hot, Warm or Cold) to help the company decide who
+                  give each lead from Meta, Google Ads, 99acres, MagicBricks or a company&apos;s webhook an AI label (Hot, Warm or Cold) to help the company decide who
                   to contact first. Before
                   a lead is labelled, we remove the name, email address and phone number from the form&apos;s contact
                   fields, as described in Section 5;
