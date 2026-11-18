@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ access: vi.fn(), from: vi.fn() }));
 vi.mock("@/lib/server/auth/access", () => ({ requireCrmAccess: mocks.access }));
@@ -18,7 +18,7 @@ const TOKEN = "T".repeat(43);
 /** A query chain: every builder call returns the chain; maybeSingle(), single() and await resolve to `result`. */
 function chain(result: { data?: unknown; error: unknown }) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const method of ["select", "eq", "insert", "update", "order", "limit"]) query[method] = vi.fn(() => query);
+  for (const method of ["select", "eq", "lt", "insert", "update", "order", "limit"]) query[method] = vi.fn(() => query);
   query.maybeSingle = vi.fn(() => Promise.resolve(result));
   return Object.assign(query, { then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve) });
 }
@@ -26,7 +26,20 @@ function chain(result: { data?: unknown; error: unknown }) {
 const row = (extra: Record<string, unknown> = {}) => ({ id: "integration-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null, ...extra });
 const FAILED = { id: "log-1", created_at: "2026-11-17T10:00:00Z", error_message: "Send mobile or email." };
 
+/**
+ * getOverview's tables: the integration row, then its two log reads in the order the service starts them (the failed
+ * requests, then the ones stuck at "received"). Each read has its own chain, so the tests see which filters each got.
+ */
+function overviewTables(integration: unknown, failedResult: { data?: unknown; error: unknown }, stuckResult: { data?: unknown; error: unknown } = { data: [], error: null }) {
+  const failed = chain(failedResult);
+  const stuck = chain(stuckResult);
+  const logReads = [failed, stuck];
+  mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: integration, error: null }) : logReads.shift());
+  return { failed, stuck };
+}
+
 beforeEach(() => vi.resetAllMocks());
+afterEach(() => vi.useRealTimers());
 
 describe("PortalIntegrationService.listStatuses", () => {
   it("lists every portal with whether this company set it up, in one read and without a URL", async () => {
@@ -50,8 +63,7 @@ describe("PortalIntegrationService.listStatuses", () => {
 describe("PortalIntegrationService.getOverview", () => {
   it("gives the owner the URL, the last lead time and the last 10 failed requests only when the card asks (details)", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const failed = chain({ data: [FAILED], error: null });
-    mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row({ last_received_at: "2026-11-17T09:00:00Z" }), error: null }) : failed);
+    const { failed } = overviewTables(row({ last_received_at: "2026-11-17T09:00:00Z" }), { data: [FAILED], error: null });
     const service = new PortalIntegrationService();
     await expect(service.getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({
       portal: "99acres", canManage: true, hasIntegration: true,
@@ -69,11 +81,54 @@ describe("PortalIntegrationService.getOverview", () => {
 
   it("reads only the time and reason of a failed request: the raw body, URL parameters and headers never reach the browser", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const failed = chain({ data: [{ ...FAILED, error_message: null }], error: null });
-    mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row(), error: null }) : failed);
+    const { failed, stuck } = overviewTables(row(), { data: [{ ...FAILED, error_message: null }], error: null });
     const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
     expect(failed.select).toHaveBeenCalledWith("id,created_at,error_message");
+    expect(stuck.select).toHaveBeenCalledWith("id,created_at,error_message");
     expect(overview.integration?.failedRequests).toEqual([{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Not saved" }]);
+  });
+
+  it("also lists a request still \"received\" 10 minutes after it arrived (its save stopped part-way) as Not saved", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-18T06:00:00Z"));
+    mocks.access.mockResolvedValue(OWNER);
+    const { failed, stuck } = overviewTables(row(), { data: [FAILED], error: null }, { data: [{ id: "log-2", created_at: "2026-11-18T05:00:00Z", error_message: null }], error: null });
+    const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
+    expect(stuck.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(stuck.eq).toHaveBeenCalledWith("integration_id", "integration-1");
+    expect(stuck.eq).toHaveBeenCalledWith("status", "received");
+    // A younger "received" request may still be saving, so the read leaves it out.
+    expect(stuck.lt).toHaveBeenCalledWith("created_at", "2026-11-18T05:50:00.000Z");
+    expect(stuck.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    expect(stuck.limit).toHaveBeenCalledWith(10);
+    expect(failed.lt).not.toHaveBeenCalled();
+    expect(overview.integration?.failedRequests).toEqual([
+      { id: "log-2", createdAt: "2026-11-18T05:00:00Z", reason: "Not saved" },
+      { id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" },
+    ]);
+  });
+
+  it("shows failed and stuck requests together newest first, each once, at most 10", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const at = (hour: number) => `2026-11-17T${String(hour).padStart(2, "0")}:00:00Z`;
+    const failedRows = [1, 3, 5, 7, 9, 11, 13].map((hour) => ({ id: `failed-${hour}`, created_at: at(hour), error_message: "Send mobile or email." }));
+    const stuckRows = [2, 4, 6, 8, 10, 12].map((hour) => ({ id: `stuck-${hour}`, created_at: at(hour), error_message: null }));
+    // Marked failed between the two reads: it comes back from both, and shows once with its reason.
+    stuckRows.push({ id: "failed-13", created_at: at(13), error_message: null });
+    overviewTables(row(), { data: failedRows, error: null }, { data: stuckRows, error: null });
+    const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
+    expect(overview.integration?.failedRequests.map((entry) => entry.id)).toEqual([
+      "failed-13", "stuck-12", "failed-11", "stuck-10", "failed-9", "stuck-8", "failed-7", "stuck-6", "failed-5", "stuck-4",
+    ]);
+    expect(overview.integration?.failedRequests[0].reason).toBe("Mobile number or email not found");
+  });
+
+  it("fails with 500 when either read of the failed requests fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    overviewTables(row(), { data: [], error: null }, { data: null, error: { message: "down" } });
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).rejects.toMatchObject({ status: 500, code: "PORTAL_OVERVIEW_FAILED" });
+    overviewTables(row(), { data: null, error: { message: "down" } });
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).rejects.toMatchObject({ status: 500, code: "PORTAL_OVERVIEW_FAILED" });
   });
 });
 
