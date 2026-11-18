@@ -11,15 +11,22 @@ import { decryptToken, encryptToken } from "@/lib/server/token-crypto";
 
 /** How many failed requests the Integrations card shows. */
 export const PORTAL_FAILED_REQUEST_LIMIT = 10;
+/**
+ * A request still "received" this long after it arrived was never saved: its save stopped part-way (the function was
+ * stopped, or the database could not be reached to record the failure), so it counts as failed. The webhook route sets
+ * no maxDuration, so the hosting's default limit of 300 s applies and such a request can no longer be in progress.
+ */
+export const PORTAL_STUCK_REQUEST_MINUTES = 10;
 /** Only when and why: the raw request (body, URL parameters, headers) never leaves the server. */
 const FAILED_REQUEST_COLUMNS = "id,created_at,error_message";
 
 /**
  * The stored error_message of a failed request (the webhook's answer to the portal, written by the intake and the
- * mapper) → the short label the owner sees. Matched exactly; anything not listed shows as "Not saved".
+ * mapper) → the short label the owner sees. Matched exactly; anything not listed, and a request stuck at "received"
+ * (no message), shows as "Not saved".
  */
 const FAILURE_REASONS: ReadonlyMap<string, PortalFailureReason> = new Map<string, PortalFailureReason>([
-  ["Send mobile or email.", "No mobile number or email"],
+  ["Send mobile or email.", "Mobile number or email not found"],
   ["Send JSON, form data or URL parameters.", "Unsupported format"],
   ["Send the lead as a JSON object.", "Unsupported format"],
   ["Send one lead per request.", "Unsupported format"],
@@ -76,20 +83,23 @@ export class PortalIntegrationService {
     const overview: PortalIntegrationOverview = { portal, canManage, hasIntegration: Boolean(row), integration: null };
     if (!canManage || !options.details || !row || !row.is_active) return overview;
 
-    const { data: failed, error: failedError } = await db.from("portal_webhook_logs")
+    // Two reads at the same time: the requests marked failed, and the ones whose save stopped part-way (still "received").
+    const logs = () => db.from("portal_webhook_logs")
       .select(FAILED_REQUEST_COLUMNS)
       .eq("tenant_id", access.tenantId)
-      .eq("integration_id", row.id)
-      .eq("status", "failed")
-      .order("created_at", { ascending: false })
-      .limit(PORTAL_FAILED_REQUEST_LIMIT);
-    if (failedError) throw new AppError("Portal details could not be loaded.", { status: 500, code: "PORTAL_OVERVIEW_FAILED" });
+      .eq("integration_id", row.id);
+    const stuckBefore = new Date(Date.now() - PORTAL_STUCK_REQUEST_MINUTES * 60_000).toISOString();
+    const [failed, stuck] = await Promise.all([
+      logs().eq("status", "failed").order("created_at", { ascending: false }).limit(PORTAL_FAILED_REQUEST_LIMIT),
+      logs().eq("status", "received").lt("created_at", stuckBefore).order("created_at", { ascending: false }).limit(PORTAL_FAILED_REQUEST_LIMIT),
+    ]);
+    if (failed.error || stuck.error) throw new AppError("Portal details could not be loaded.", { status: 500, code: "PORTAL_OVERVIEW_FAILED" });
     return {
       ...overview,
       integration: {
         url: readableUrl(origin, portal, row.encrypted_url_token),
         lastLeadAt: sinceRotation(row.last_received_at, row.url_rotated_at),
-        failedRequests: ((failed ?? []) as FailedRequestRow[]).map(toFailedRequestView),
+        failedRequests: newestFailedRequests((stuck.data ?? []) as FailedRequestRow[], (failed.data ?? []) as FailedRequestRow[]).map(toFailedRequestView),
       },
     };
   }
@@ -120,6 +130,18 @@ export class PortalIntegrationService {
     if (error) throw saveFailed();
     return { url: buildPortalWebhookUrl(origin, portal, token) };
   }
+}
+
+/**
+ * The stuck and the failed requests as one list: newest first, each request once (if a request was marked failed
+ * between the two reads, its failed copy and reason win), at most PORTAL_FAILED_REQUEST_LIMIT.
+ */
+function newestFailedRequests(stuck: FailedRequestRow[], failed: FailedRequestRow[]): FailedRequestRow[] {
+  const byId = new Map<string, FailedRequestRow>();
+  for (const entry of [...stuck, ...failed]) byId.set(entry.id, entry);
+  return [...byId.values()]
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+    .slice(0, PORTAL_FAILED_REQUEST_LIMIT);
 }
 
 function toFailedRequestView(row: FailedRequestRow): PortalFailedRequestView {

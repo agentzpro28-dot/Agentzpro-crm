@@ -75,7 +75,7 @@ export class PortalLeadIntakeService {
   /**
    * One request for a known, active integration, after the public webhook's token lookup. The raw request is written to
    * portal_webhook_logs BEFORE it is read, so an enquiry that cannot be read (unexpected field names, a new format) is
-   * never lost: the owner sees it in the card.
+   * never lost: our support team keeps its copy, and the owner sees it under Failed requests in the card.
    */
   public async ingestForIntegration(integration: PortalIntegrationRow, request: IncomingPortalRequest): Promise<PortalIntakeResult> {
     const portal = integration.portal_name;
@@ -174,7 +174,7 @@ export function loggableHeaders(headers: Headers): Record<string, string> {
   return result;
 }
 
-/** Best effort: a log row left "received" still shows the raw request in the card. */
+/** Best effort: a log row left "received" still shows under Failed requests ("Not saved") after a few minutes. */
 async function markFailed(logId: string, tenantId: string, message: string): Promise<void> {
   try {
     const { error } = await getSupabaseAdminClient().from("portal_webhook_logs")
