@@ -1,6 +1,7 @@
-/* The MagicBricks card on the Integrations page: its own styles (red band and icon), the same look as the other cards. */
-.card { --integration-accent: #d8232a; }
-:global(:root[data-theme="dark"]) .card { --integration-accent: #ff6b70; }
+/* The MagicBricks card on the Integrations page: its own styles (red band and icon), the same look as the other cards.
+   Paired with .integration-card so it always outranks that class's default accent, whatever order the CSS loads in. */
+:global(.integration-card).card { --integration-accent: #d8232a; }
+:global(:root[data-theme="dark"]) :global(.integration-card).card { --integration-accent: #ff6b70; }
 
 .step { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--border); }
 .step h3 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 1rem; }
