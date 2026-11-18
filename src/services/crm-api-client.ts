@@ -126,6 +126,6 @@ export async function stopCustomWebhook(): Promise<{ stopped: boolean }> { retur
 
 /** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
 export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }
-/** The Integrations card's view of one portal: always read fresh, with the owner's URL and the last 10 raw requests. */
+/** The Integrations card's view of one portal: always read fresh, with the owner's URL and the last 10 failed requests. */
 export async function getPortalIntegrationOverview(portal: PortalId): Promise<PortalIntegrationOverview> { return request<PortalIntegrationOverview>(`/api/integrations/portals/${encodeURIComponent(portal)}?details=1`); }
 export async function createPortalIntegration(portal: PortalId): Promise<{ url: string }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "POST", body: "{}" }); }

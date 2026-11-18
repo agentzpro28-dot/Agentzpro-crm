@@ -3,18 +3,19 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { AppError } from "@/lib/server/app-error";
 import { requireCrmAccess } from "@/lib/server/auth/access";
-import { PORTAL_IDS, PORTALS, type PortalId, type PortalIntegrationOverview, type PortalIntegrationStatus, type PortalWebhookLogView } from "@/lib/portal-leads/portals";
+import { PORTAL_IDS, PORTALS, type PortalFailedRequestView, type PortalId, type PortalIntegrationOverview, type PortalIntegrationStatus } from "@/lib/portal-leads/portals";
 import { hashPortalWebhookToken } from "@/lib/server/portal-leads/portal-lead-intake-service";
 import { getSupabaseAdminClient } from "@/lib/server/supabase-admin";
 import { decryptToken, encryptToken } from "@/lib/server/token-crypto";
 
-/** How many recent requests the Integrations card shows. */
-export const PORTAL_LOG_LIMIT = 10;
-/** The longest body the card shows per request; the full body stays in the log. */
-const MAX_SHOWN_BODY_LENGTH = 20_000;
+/** How many failed requests the Integrations card shows. */
+export const PORTAL_FAILED_REQUEST_LIMIT = 10;
+/** Only when and why: the raw request (body, URL parameters, headers) never leaves the server. */
+const FAILED_REQUEST_COLUMNS = "id,created_at,error_message";
+const FAILED_REQUEST_FALLBACK = "The request could not be saved.";
 
 type IntegrationRow = { encrypted_url_token: string; is_active: boolean; last_received_at: string | null; url_rotated_at: string | null; id: string };
-type LogRow = { id: string; created_at: string; http_method: "GET" | "POST"; status: PortalWebhookLogView["status"]; error_message: string | null; headers: unknown; query_params: unknown; raw_body: string | null };
+type FailedRequestRow = { id: string; created_at: string; error_message: string | null };
 
 async function resolveOwner(portal: PortalId): Promise<{ tenantId: string }> {
   const access = await requireCrmAccess();
@@ -39,7 +40,7 @@ export class PortalIntegrationService {
     return { portals: PORTAL_IDS.map((portal) => ({ portal, hasIntegration: existing.has(portal) })) };
   }
 
-  /** The Integrations card. With `details` the owner also gets the URL, the last lead time and the last 10 requests. */
+  /** The Integrations card. With `details` the owner also gets the URL, the last lead time and the last 10 failed requests. */
   public async getOverview(portal: PortalId, origin: string, options: { details?: boolean } = {}): Promise<PortalIntegrationOverview> {
     const access = await requireCrmAccess();
     const canManage = access.membershipRole === "owner";
@@ -54,19 +55,20 @@ export class PortalIntegrationService {
     const overview: PortalIntegrationOverview = { portal, canManage, hasIntegration: Boolean(row), integration: null };
     if (!canManage || !options.details || !row || !row.is_active) return overview;
 
-    const { data: logs, error: logError } = await db.from("portal_webhook_logs")
-      .select("id,created_at,http_method,status,error_message,headers,query_params,raw_body")
+    const { data: failed, error: failedError } = await db.from("portal_webhook_logs")
+      .select(FAILED_REQUEST_COLUMNS)
       .eq("tenant_id", access.tenantId)
       .eq("integration_id", row.id)
+      .eq("status", "failed")
       .order("created_at", { ascending: false })
-      .limit(PORTAL_LOG_LIMIT);
-    if (logError) throw new AppError("Portal details could not be loaded.", { status: 500, code: "PORTAL_OVERVIEW_FAILED" });
+      .limit(PORTAL_FAILED_REQUEST_LIMIT);
+    if (failedError) throw new AppError("Portal details could not be loaded.", { status: 500, code: "PORTAL_OVERVIEW_FAILED" });
     return {
       ...overview,
       integration: {
         url: readableUrl(origin, portal, row.encrypted_url_token),
         lastLeadAt: sinceRotation(row.last_received_at, row.url_rotated_at),
-        logs: ((logs ?? []) as LogRow[]).map(toLogView),
+        failedRequests: ((failed ?? []) as FailedRequestRow[]).map(toFailedRequestView),
       },
     };
   }
@@ -99,19 +101,8 @@ export class PortalIntegrationService {
   }
 }
 
-function toLogView(row: LogRow): PortalWebhookLogView {
-  const body = row.raw_body ?? "";
-  return {
-    id: row.id,
-    createdAt: row.created_at,
-    method: row.http_method,
-    status: row.status,
-    errorMessage: row.error_message,
-    headers: asRecord(row.headers),
-    queryParams: asRecord(row.query_params),
-    rawBody: body.slice(0, MAX_SHOWN_BODY_LENGTH),
-    bodyCut: body.length > MAX_SHOWN_BODY_LENGTH,
-  };
+function toFailedRequestView(row: FailedRequestRow): PortalFailedRequestView {
+  return { id: row.id, createdAt: row.created_at, errorMessage: row.error_message || FAILED_REQUEST_FALLBACK };
 }
 
 /**
@@ -126,10 +117,6 @@ function readableUrl(origin: string, portal: PortalId, encryptedToken: string): 
     console.error(JSON.stringify({ operation: "portal_integration", code: "URL_DECRYPT_FAILED", portal }));
     return null;
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function saveFailed(): AppError {

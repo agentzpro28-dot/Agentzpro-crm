@@ -23,7 +23,7 @@ function chain(result: { data?: unknown; error: unknown }) {
 }
 
 const row = (extra: Record<string, unknown> = {}) => ({ id: "integration-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null, ...extra });
-const LOG = { id: "log-1", created_at: "2026-11-17T10:00:00Z", http_method: "POST", status: "processed", error_message: null, headers: { "content-type": "application/json" }, query_params: {}, raw_body: "{\"name\":\"Ravi\"}" };
+const FAILED = { id: "log-1", created_at: "2026-11-17T10:00:00Z", error_message: "Send mobile or email." };
 
 beforeEach(() => vi.resetAllMocks());
 
@@ -47,22 +47,32 @@ describe("PortalIntegrationService.listStatuses", () => {
 });
 
 describe("PortalIntegrationService.getOverview", () => {
-  it("gives the owner the URL, the last lead time and the last requests only when the card asks (details)", async () => {
+  it("gives the owner the URL, the last lead time and the last 10 failed requests only when the card asks (details)", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const logs = chain({ data: [LOG], error: null });
-    mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row({ last_received_at: "2026-11-17T09:00:00Z" }), error: null }) : logs);
+    const failed = chain({ data: [FAILED], error: null });
+    mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row({ last_received_at: "2026-11-17T09:00:00Z" }), error: null }) : failed);
     const service = new PortalIntegrationService();
     await expect(service.getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({
       portal: "99acres", canManage: true, hasIntegration: true,
       integration: {
         url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z",
-        logs: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", method: "POST", status: "processed", errorMessage: null, headers: { "content-type": "application/json" }, queryParams: {}, rawBody: "{\"name\":\"Ravi\"}", bodyCut: false }],
+        failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", errorMessage: "Send mobile or email." }],
       },
     });
-    expect(logs.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
-    expect(logs.eq).toHaveBeenCalledWith("integration_id", "integration-1");
-    expect(logs.limit).toHaveBeenCalledWith(10);
+    expect(failed.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(failed.eq).toHaveBeenCalledWith("integration_id", "integration-1");
+    expect(failed.eq).toHaveBeenCalledWith("status", "failed");
+    expect(failed.limit).toHaveBeenCalledWith(10);
     await expect(service.getOverview("99acres", ORIGIN)).resolves.toEqual({ portal: "99acres", canManage: true, hasIntegration: true, integration: null });
+  });
+
+  it("reads only the time and reason of a failed request: the raw body, URL parameters and headers never reach the browser", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const failed = chain({ data: [{ ...FAILED, error_message: null }], error: null });
+    mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row(), error: null }) : failed);
+    const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
+    expect(failed.select).toHaveBeenCalledWith("id,created_at,error_message");
+    expect(overview.integration?.failedRequests).toEqual([{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", errorMessage: "The request could not be saved." }]);
   });
 
   it("never gives an employee the URL or the raw requests", async () => {
@@ -81,20 +91,12 @@ describe("PortalIntegrationService.getOverview", () => {
     expect(overview.integration?.lastLeadAt).toBeNull();
   });
 
-  it("cuts a very long body for the card and says so", async () => {
-    mocks.access.mockResolvedValue(OWNER);
-    mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row(), error: null }) : chain({ data: [{ ...LOG, raw_body: "x".repeat(25_000) }], error: null }));
-    const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
-    expect(overview.integration?.logs[0]).toMatchObject({ bodyCut: true });
-    expect(overview.integration?.logs[0].rawBody).toHaveLength(20_000);
-  });
-
   it("still loads the card, with no URL, when the stored copy cannot be decrypted (the card then offers Regenerate)", async () => {
     mocks.access.mockResolvedValue(OWNER);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? chain({ data: row({ encrypted_url_token: "unreadable" }), error: null }) : chain({ data: [], error: null }));
     const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
-    expect(overview.integration).toMatchObject({ url: null, logs: [] });
+    expect(overview.integration).toMatchObject({ url: null, failedRequests: [] });
   });
 
   it("reports no integration as not set up", async () => {

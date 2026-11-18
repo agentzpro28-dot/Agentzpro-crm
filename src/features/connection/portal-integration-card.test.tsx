@@ -3,15 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/leads/99acres/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const LOG = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", method: "POST" as const, status: "failed" as const, errorMessage: "Send mobile or email.", headers: { "content-type": "application/json" }, queryParams: { src: "99" }, rawBody: "{\"custName\":\"Ravi\"}", bodyCut: false };
-const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, logs: [] } };
+const FAILED = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", errorMessage: "Send mobile or email." };
+const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getPortalIntegrationOverview: vi.fn(),
   createPortalIntegration: vi.fn(),
 }));
 
-const { PortalIntegrationCard, prettyBody, relativeTime } = await import("@/features/connection/portal-integration-card");
+const { PortalIntegrationCard, relativeTime } = await import("@/features/connection/portal-integration-card");
 const api = await import("@/services/crm-api-client");
 
 let writeText: ReturnType<typeof vi.fn>;
@@ -58,7 +58,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("says Connected with the last lead time once a lead arrived", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), logs: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.getByText("Last lead received 5 minutes ago")).toBeInTheDocument();
@@ -75,18 +75,25 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(await screen.findByText("New URL created. Send it to 99acres.")).toBeInTheDocument();
   });
 
-  it("lists the last requests and shows exactly what was sent on View", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, logs: [LOG, { ...LOG, id: "log-2", status: "processed", errorMessage: null }] } });
+  it("lists only the failed requests, each with its time and reason, and never the raw request", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [FAILED, { id: "log-2", createdAt: "2026-11-16T08:00:00Z", errorMessage: "Send JSON, form data or URL parameters." }] } });
     render(<PortalIntegrationCard portal="99acres" />);
-    const list = await screen.findByRole("list");
-    const items = within(list).getAllByRole("listitem");
+    expect(await screen.findByRole("heading", { name: "Failed requests" })).toBeInTheDocument();
+    expect(screen.getByText("These 99acres enquiries could not be saved. Contact AgentzPro support with the time shown.")).toBeInTheDocument();
+    const items = within(screen.getByRole("list")).getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText("Failed")).toBeInTheDocument();
     expect(within(items[0]).getByText("Send mobile or email.")).toBeInTheDocument();
-    expect(within(items[1]).getByText("Saved")).toBeInTheDocument();
-    fireEvent.click(within(items[0]).getByRole("button", { name: "View" }));
-    expect(within(items[0]).getByText(/"custName": "Ravi"/)).toBeInTheDocument();
-    expect(within(items[0]).getByText(/"src": "99"/)).toBeInTheDocument();
+    expect(within(items[1]).getByText("Send JSON, form data or URL parameters.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Recent requests")).not.toBeInTheDocument();
+  });
+
+  it("hides the failed requests section when nothing failed, and Refresh in step 3 reloads the status", async () => {
+    render(<PortalIntegrationCard portal="99acres" />);
+    await screen.findByLabelText("Webhook URL");
+    expect(screen.queryByRole("heading", { name: "Failed requests" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(api.getPortalIntegrationOverview).toHaveBeenCalledTimes(2));
   });
@@ -101,7 +108,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("offers Regenerate when the URL cannot be shown, and still shows the real status", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, logs: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to 99acres.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
@@ -118,11 +125,6 @@ describe("PortalIntegrationCard (99acres)", () => {
 });
 
 describe("helpers", () => {
-  it("indents a JSON body and shows anything else as sent", () => {
-    expect(prettyBody("{\"a\":1}")).toBe("{\n  \"a\": 1\n}");
-    expect(prettyBody("name=Ravi&mobile=1")).toBe("name=Ravi&mobile=1");
-  });
-
   it("says how long ago, in plain words", () => {
     const now = Date.parse("2026-11-17T10:00:00Z");
     expect(relativeTime("2026-11-17T09:59:40Z", now)).toBe("just now");

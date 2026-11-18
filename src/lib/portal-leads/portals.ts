@@ -27,20 +27,14 @@ export function parsePortalId(value: unknown): PortalId | null {
 /** Which portals a company has set up: the /leads Source filter and the dashboard's platform switch. */
 export interface PortalIntegrationStatus { portal: PortalId; hasIntegration: boolean }
 
-export type PortalWebhookLogStatus = "received" | "processed" | "duplicate" | "failed";
-
-/** One raw request as the portal sent it, for the Integrations card's request log (owner only). */
-export interface PortalWebhookLogView {
+/**
+ * One request the portal sent that could not be saved, for the Integrations card (owner only): when, and why. The raw
+ * request itself never reaches the browser; it stays in the log for our support team.
+ */
+export interface PortalFailedRequestView {
   id: string;
   createdAt: string;
-  method: "GET" | "POST";
-  status: PortalWebhookLogStatus;
-  errorMessage: string | null;
-  headers: Record<string, unknown>;
-  queryParams: Record<string, unknown>;
-  rawBody: string;
-  /** The body was longer than the card shows; the full body stays in the log. */
-  bodyCut: boolean;
+  errorMessage: string;
 }
 
 export interface PortalIntegrationOverview {
@@ -51,9 +45,9 @@ export interface PortalIntegrationOverview {
   /**
    * Only for the owner, and only when the Integrations card asks (details): the URL to give the portal (null when its
    * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL and the last 10
-   * requests. Null otherwise.
+   * failed requests. Null otherwise.
    */
-  integration: { url: string | null; lastLeadAt: string | null; logs: PortalWebhookLogView[] } | null;
+  integration: { url: string | null; lastLeadAt: string | null; failedRequests: PortalFailedRequestView[] } | null;
 }
 
 /** What became of one enquiry: stored = a new lead; merged = a note on the lead with the same phone; duplicate = a retry. */
