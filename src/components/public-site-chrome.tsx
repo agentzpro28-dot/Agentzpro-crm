@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BrandLogo } from "@/components/brand-logo";
 import landing from "@/app/landing.module.css";
 
-/** Header of the public pages (home, contact, privacy policy, terms): logo home link, Pricing and Login. */
+/** Header of the public pages (home, contact, privacy policy, terms): logo home link, Docs, Pricing and Login. */
 export function PublicSiteHeader() {
   return (
     <header className={landing.header}>
@@ -10,6 +10,9 @@ export function PublicSiteHeader() {
         <BrandLogo />
       </Link>
       <nav className={landing.headerActions} aria-label="Account">
+        <Link href="/docs" className={landing.pricingButton}>
+          Docs
+        </Link>
         <Link href="/pricing" className={landing.pricingButton}>
           Pricing
         </Link>

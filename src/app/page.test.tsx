@@ -25,8 +25,9 @@ it("shows the public landing page with a Login button to signed-out visitors", a
   mocks.requireCrmAccess.mockRejectedValue(new AppError("Signed out", { status: 401, code: "UNAUTHENTICATED" }));
   render(await HomePage());
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/Your next opportunity\s*starts here\./);
-  expect(screen.getAllByRole("link")).toHaveLength(11);
+  expect(screen.getAllByRole("link")).toHaveLength(12);
   expect(screen.getByRole("link", { name: "AgentzPro home" })).toHaveAttribute("href", "/");
+  expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs");
   expect(screen.getByRole("link", { name: "Login" })).toHaveAttribute("href", "/login");
   expect(screen.getByRole("link", { name: "Get started" })).toHaveAttribute("href", "/login");
   expect(screen.getByRole("link", { name: "See what it does" })).toHaveAttribute("href", "#features");

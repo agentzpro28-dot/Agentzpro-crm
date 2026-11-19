@@ -24,6 +24,7 @@ it("shows the free trial and Pro plans, both starting at login", async () => {
   expect(screen.getByRole("heading", { level: 2, name: "Pro" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Start 14-day free trial" })).toHaveAttribute("href", "/login");
   expect(screen.getByRole("link", { name: "Get Pro" })).toHaveAttribute("href", "/login");
+  expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/docs");
   expect(screen.getByRole("link", { name: "Login" })).toHaveAttribute("href", "/login");
 });
 

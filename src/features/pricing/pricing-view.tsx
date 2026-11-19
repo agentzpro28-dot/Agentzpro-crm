@@ -65,6 +65,9 @@ export function PricingView({ plans }: Readonly<{ plans: BillingPlanOption[] }>)
           <BrandLogo />
         </Link>
         <nav className={landing.headerActions} aria-label="Account">
+          <Link href="/docs" className={landing.pricingButton}>
+            Docs
+          </Link>
           <Link href="/login" className={landing.loginButton}>
             Login
           </Link>
