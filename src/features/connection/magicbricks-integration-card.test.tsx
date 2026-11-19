@@ -29,7 +29,7 @@ describe("MagicbricksIntegrationCard", () => {
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MagicBricks" })).toBeInTheDocument();
-    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(2);
+    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Generate webhook URL" }));
     await waitFor(() => expect(api.createMagicbricksIntegration).toHaveBeenCalledTimes(1));
     expect(await screen.findByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
@@ -47,10 +47,14 @@ describe("MagicbricksIntegrationCard", () => {
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
-  it("tells the owner to send the URL to the MagicBricks account manager, with no unverified menu path", async () => {
+  it("has only 2 steps (no 'send it to' step), with no unverified menu path", async () => {
     render(<MagicbricksIntegrationCard />);
-    expect(await screen.findByText("Send it to your MagicBricks account manager")).toBeInTheDocument();
-    expect(screen.getByText("Copy the URL above and send it to your MagicBricks account manager. They set up the lead delivery.")).toBeInTheDocument();
+    await screen.findByLabelText("Webhook URL");
+    expect(screen.queryByText(/Send it to/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      "1Generate your webhook URL",
+      "2Check that leads arrive",
+    ]);
     expect(screen.queryByText(/My Account/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /test lead/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();

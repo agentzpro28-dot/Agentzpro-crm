@@ -28,7 +28,7 @@ describe("PortalIntegrationCard (99acres)", () => {
     vi.mocked(api.getPortalIntegrationOverview).mockResolvedValueOnce({ portal: "99acres", canManage: true, hasIntegration: false, integration: null });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
-    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(2);
+    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(1);
     expect(screen.queryByText("Waiting for first lead")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Generate webhook URL" }));
     await waitFor(() => expect(api.createPortalIntegration).toHaveBeenCalledWith("99acres"));
@@ -48,9 +48,14 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(input.type).toBe("text");
   });
 
-  it("tells the owner to send the URL to 99acres, with no email to copy and no test lead", async () => {
+  it("has only 2 steps (no 'send it to' step), with no email to copy and no test lead", async () => {
     render(<PortalIntegrationCard portal="99acres" />);
-    expect(await screen.findByText("Copy the URL above and send it to your 99acres account manager or 99acres support.")).toBeInTheDocument();
+    await screen.findByLabelText("Webhook URL");
+    expect(screen.queryByText(/Send it to/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      "1Generate your webhook URL",
+      "2Check that leads arrive",
+    ]);
     expect(screen.getByText("Waiting for first lead", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText("The status turns Connected when 99acres sends the first lead.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /email/i })).not.toBeInTheDocument();
@@ -90,7 +95,7 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(screen.queryByText("Recent requests")).not.toBeInTheDocument();
   });
 
-  it("hides the failed requests section when nothing failed, and Refresh in step 3 reloads the status", async () => {
+  it("hides the failed requests section when nothing failed, and Refresh in step 2 reloads the status", async () => {
     render(<PortalIntegrationCard portal="99acres" />);
     await screen.findByLabelText("Webhook URL");
     expect(screen.queryByRole("heading", { name: "Failed requests" })).not.toBeInTheDocument();
@@ -113,7 +118,7 @@ describe("PortalIntegrationCard (99acres)", () => {
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to 99acres.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Generate the webhook URL first.")).toHaveLength(1);
+    expect(screen.queryByText("Generate the webhook URL first.")).not.toBeInTheDocument();
     expect(screen.getByText("Waiting for first lead", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Regenerate URL" })).toBeEnabled();
   });

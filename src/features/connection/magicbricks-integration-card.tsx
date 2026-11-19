@@ -15,7 +15,8 @@ type Message = { tone: "success" | "danger" | "warning" | "info"; text: string }
 const LABEL = MAGICBRICKS_LABEL;
 
 /**
- * MagicBricks on the Integrations page: the company's own secret webhook URL and the 3 setup steps. Only when a request
+ * MagicBricks on the Integrations page: the company's own secret webhook URL and the 2 setup steps (sending the URL to
+ * the account manager is covered in detail on the public docs page, not repeated here). Only when a request
  * could not be saved does a "Failed requests" list appear (the last 10: when and why), so the owner knows to contact
  * us; the raw requests stay with our support team. The URL is the only secret, so it is shown only to the owner, hidden
  * until asked.
@@ -105,12 +106,7 @@ export function MagicbricksIntegrationCard() {
       </div>
 
       <div className={styles.step}>
-        <h3><span className={styles.stepNumber}>2</span>Send it to your {LABEL} account manager</h3>
-        <p className="field-help">{webhookUrl ? `Copy the URL above and send it to your ${LABEL} account manager. They set up the lead delivery.` : "Generate the webhook URL first."}</p>
-      </div>
-
-      <div className={styles.step}>
-        <h3><span className={styles.stepNumber}>3</span>Check that leads arrive</h3>
+        <h3><span className={styles.stepNumber}>2</span>Check that leads arrive</h3>
         {!integration ? <p className="field-help">Generate the webhook URL first.</p>
           : integration.lastLeadAt ? <div className={styles.arrival}>
             <strong className={styles.arrivalStatus}>Connected<Check aria-hidden="true" size={18} /></strong>

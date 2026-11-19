@@ -12,7 +12,8 @@ type Busy = "create" | "replace" | "refresh" | null;
 type Message = { tone: "success" | "danger" | "warning" | "info"; text: string };
 
 /**
- * A real-estate portal (99acres) on the Integrations page: the company's own secret webhook URL and the 3 setup steps.
+ * A real-estate portal (99acres) on the Integrations page: the company's own secret webhook URL and the 2 setup steps.
+ * (Sending the URL to the portal is covered in detail on the public docs page, not repeated here.)
  * Only when a request could not be saved does a "Failed requests" list appear (the last 10: when and why), so the owner
  * knows to contact us; the raw requests stay with our support team. The URL is the only secret, so it is shown only to
  * the owner, hidden until asked.
@@ -103,12 +104,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
       </div>
 
       <div className="google-ads-step">
-        <h3><span className="google-step-number">2</span>Send it to {label}</h3>
-        <p className="field-help">{webhookUrl ? `Copy the URL above and send it to your ${label} account manager or ${label} support.` : "Generate the webhook URL first."}</p>
-      </div>
-
-      <div className="google-ads-step">
-        <h3><span className="google-step-number">3</span>Check that leads arrive</h3>
+        <h3><span className="google-step-number">2</span>Check that leads arrive</h3>
         {!integration ? <p className="field-help">Generate the webhook URL first.</p>
           : integration.lastLeadAt ? <div className="google-arrival">
             <strong className="google-arrival__status">Connected<Check aria-hidden="true" size={18} /></strong>
