@@ -7,14 +7,15 @@ import { LeadsPageClient } from "@/features/leads/leads-page-client";
 import { LEADS_CHANGED_EVENT } from "@/components/task-bell";
 
 // The Source filter's connection checks (useLeadSources). By default the company uses every source.
-const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn() }));
-vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook, getPortalIntegrationStatuses: sourceChecks.portals, getMagicbricksStatus: sourceChecks.magicbricks }));
+const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn(), housing: vi.fn() }));
+vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook, getPortalIntegrationStatuses: sourceChecks.portals, getMagicbricksStatus: sourceChecks.magicbricks, getHousingStatus: sourceChecks.housing }));
 beforeEach(() => {
   sourceChecks.connection.mockReset().mockResolvedValue({ connectionStatus: "active", pages: [{ id: "page-1", status: "active" }] });
   sourceChecks.google.mockReset().mockResolvedValue({ connection: null, hasWebhook: true, webhookStopped: false, needsReconnect: false });
   sourceChecks.webhook.mockReset().mockResolvedValue({ canManage: true, hasWebhook: true, webhookStopped: false, webhook: null });
   sourceChecks.portals.mockReset().mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: false }] });
   sourceChecks.magicbricks.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
+  sourceChecks.housing.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
 });
 
 vi.mock("next/link", () => ({

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ConnectionPageClient } from "@/features/connection/connection-page-client";
 import { CustomWebhookConnectionCard } from "@/features/connection/custom-webhook-connection-card";
 import { GoogleAdsConnectionCard } from "@/features/connection/google-ads-connection-card";
+import { HousingIntegrationCard } from "@/features/connection/housing-integration-card";
 import { MagicbricksIntegrationCard } from "@/features/connection/magicbricks-integration-card";
 import { PortalIntegrationCard } from "@/features/connection/portal-integration-card";
 
@@ -16,5 +17,6 @@ export default function ConnectionPage() {
     <CustomWebhookConnectionCard />
     <PortalIntegrationCard portal="99acres" />
     <MagicbricksIntegrationCard />
+    <HousingIntegrationCard />
   </div>;
 }

@@ -1,6 +1,7 @@
 import type { ConnectionOverview, EligibleFacebookPage } from "@/lib/types";
 import type { PortalId, PortalIntegrationOverview, PortalIntegrationStatus } from "@/lib/portal-leads/portals";
 import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
+import type { HousingOverview } from "@/lib/housing/housing";
 
 type ApiErrorPayload = { error?: { message?: string; code?: string; details?: Record<string, unknown> } };
 
@@ -130,6 +131,12 @@ export async function getMagicbricksStatus(): Promise<MagicbricksOverview> { ret
 /** The Integrations card's MagicBricks view: always read fresh, with the owner's URL and the last 10 failed requests. */
 export async function getMagicbricksOverview(): Promise<MagicbricksOverview> { return request<MagicbricksOverview>("/api/integrations/magicbricks?details=1"); }
 export async function createMagicbricksIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/magicbricks", { method: "POST", body: "{}" }); }
+
+/** Whether this company created its Housing.com URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
+export async function getHousingStatus(): Promise<HousingOverview> { return sharedConnectionCheck<HousingOverview>("/api/integrations/housing", false); }
+/** The Integrations card's Housing.com view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
+export async function getHousingOverview(): Promise<HousingOverview> { return request<HousingOverview>("/api/integrations/housing?details=1"); }
+export async function createHousingIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/housing", { method: "POST", body: "{}" }); }
 
 /** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
 export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }
