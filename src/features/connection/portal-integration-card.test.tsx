@@ -37,6 +37,15 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(screen.queryByText("Generate the webhook URL first.")).not.toBeInTheDocument();
   });
 
+  it("links to the 99acres setup guide, opening it in a new tab", async () => {
+    render(<PortalIntegrationCard portal="99acres" />);
+    const link = await screen.findByRole("link", { name: /Read the setup guide before you generate your webhook URL/ });
+    expect(link).toHaveAttribute("href", "/docs/integrations/99acres");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveTextContent("(opens in a new tab)");
+  });
+
   it("hides the URL like a password until Show, and Copy URL copies the real URL", async () => {
     render(<PortalIntegrationCard portal="99acres" />);
     const input = await screen.findByLabelText("Webhook URL") as HTMLInputElement;

@@ -4113,6 +4113,12 @@ body.mvp-drawer-resizing .mvp-lead-drawer { animation: none; pointer-events: non
 .integration-card__title { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .integration-card__title > div { min-width: 0; }
 .integration-card__title + .status-badge { flex: 0 0 auto; white-space: nowrap; }
+/* The card's setup-guide link under its description; opens the public docs page in a new tab. */
+.integration-card__guide { margin-top: 4px; }
+.integration-card__guide a { display: inline-flex; align-items: center; gap: 4px; color: var(--primary-strong); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.integration-card__guide a:hover { text-decoration-thickness: 2px; }
+.integration-card__guide a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+.integration-card__guide svg { flex: 0 0 auto; }
 .integration-card__icon { display: inline-grid; flex: 0 0 auto; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: color-mix(in srgb, var(--integration-accent) 14%, transparent); color: var(--integration-accent); }
 /* Facebook's parts (summary, Page picker, connected Pages) as sections of its card, spaced like the Google Ads steps. */
 .integration-card__section { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--border); }

@@ -84,7 +84,7 @@ export function GoogleAdsConnectionCard() {
   const webhook = overview?.webhook ?? null;
 
   return <section className="panel integration-card integration-card--google" aria-labelledby="google-ads-title"><div className="panel__body stack">
-    <div className="section-title"><IntegrationCardTitle id="google-ads-title" icon={GoogleIcon} title="Google Ads" description="Receive leads from your Google Ads lead forms." />
+    <div className="section-title"><IntegrationCardTitle id="google-ads-title" icon={GoogleIcon} title="Google Ads" description="Receive leads from your Google Ads lead forms." guide={{ href: "/docs/integrations/google-ads", text: "Read the setup guide before you connect Google Ads" }} />
       {overview ? <StatusBadge tone={overview.hasWebhook ? "success" : overview.webhookStopped ? "danger" : "info"}>{overview.hasWebhook ? "Receiving leads" : overview.webhookStopped ? "Disconnected" : "Not set up"}</StatusBadge> : null}
     </div>
     {message ? <Notice tone={message.tone} title={message.text} /> : null}
