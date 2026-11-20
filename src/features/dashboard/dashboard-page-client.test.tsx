@@ -5,9 +5,9 @@ import { CHART_SETTLE_MS } from "@/features/dashboard/dashboard-download";
 import { DashboardPageClient } from "@/features/dashboard/dashboard-page-client";
 import { DASHBOARD_PLATFORMS } from "@/features/dashboard/dashboard-platforms";
 
-const mocks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn() }));
+const mocks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn(), housing: vi.fn() }));
 vi.mock("next/link", () => ({ default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a> }));
-vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: mocks.connection, getGoogleAdsOverview: mocks.google, getCustomWebhookOverview: mocks.webhook, getPortalIntegrationStatuses: mocks.portals, getMagicbricksStatus: mocks.magicbricks }));
+vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: mocks.connection, getGoogleAdsOverview: mocks.google, getCustomWebhookOverview: mocks.webhook, getPortalIntegrationStatuses: mocks.portals, getMagicbricksStatus: mocks.magicbricks, getHousingStatus: mocks.housing }));
 vi.mock("@/features/dashboard/navigation", () => ({ reloadPage: vi.fn(), goToLogin: vi.fn() }));
 // recharts needs real layout; the charts' own maths is covered by dashboard-format tests and the browser run.
 vi.mock("@/features/dashboard/dashboard-charts", () => ({
@@ -69,6 +69,7 @@ beforeEach(() => {
   mocks.webhook.mockReset().mockResolvedValue(WEBHOOK_ON);
   mocks.portals.mockReset().mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: false }] });
   mocks.magicbricks.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
+  mocks.housing.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
   window.history.replaceState(null, "", "/dashboard");
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -400,6 +401,7 @@ describe("dashboard platform switch", () => {
     // Every platform in use, 99acres included (it is set up only on request elsewhere in this file).
     mocks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
     mocks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    mocks.housing.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
     useControlledClock();
     let titleWhilePrinting = "";
     const print = vi.fn(() => { titleWhilePrinting = document.title; });
@@ -561,6 +563,26 @@ describe("only the platforms the company uses", () => {
     await screen.findByTestId("month-leads");
     expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "MagicBricks", "Telecaller"]);
   });
+
+  it("lists Housing.com only once the company generated its Housing.com URL, after MagicBricks and before Telecaller", async () => {
+    mocks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    mocks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    const { unmount } = render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).not.toContain("Housing.com");
+    unmount();
+    mocks.housing.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "99acres", "MagicBricks", "Housing.com", "Telecaller"]);
+  });
+
+  it("keeps Housing.com when its check failed, without hiding any other platform", async () => {
+    mocks.housing.mockRejectedValue(new Error("network"));
+    render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "Housing.com", "Telecaller"]);
+  });
 });
 
 describe("dashboard 99acres view", () => {
@@ -586,6 +608,22 @@ describe("dashboard MagicBricks view", () => {
     await screen.findByTestId("month-leads");
     expect(statBodies[0]).toMatchObject({ platform: "magicbricks" });
     expect(screen.getByText("This Month MagicBricks Leads")).toBeInTheDocument();
+    expect(screen.getByTestId("Leads by label")).toBeInTheDocument();
+    expect(screen.getByTestId("Leads by status")).toBeInTheDocument();
+    expect(screen.queryByTestId("Leads by Facebook Page")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Campaign" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Integrations|Connection|Reconnect/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("dashboard Housing.com view", () => {
+  it("shows Housing.com leads with the common charts only, no Page, Ad or Campaign filter and no connection warning", async () => {
+    mocks.housing.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    render(<DashboardPageClient initialPlatform="housing" />);
+    await screen.findByTestId("month-leads");
+    expect(statBodies[0]).toMatchObject({ platform: "housing" });
+    expect(screen.getByText("This Month Housing.com Leads")).toBeInTheDocument();
     expect(screen.getByTestId("Leads by label")).toBeInTheDocument();
     expect(screen.getByTestId("Leads by status")).toBeInTheDocument();
     expect(screen.queryByTestId("Leads by Facebook Page")).not.toBeInTheDocument();

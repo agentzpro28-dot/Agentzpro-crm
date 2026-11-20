@@ -164,6 +164,25 @@ describe("authenticated lead CSV route, MagicBricks leads", () => {
   });
 });
 
+describe("authenticated lead CSV route, Housing.com leads", () => {
+  it("accepts the Housing.com source and writes the Housing.com lead id, Housing.com and the project; no project leaves Ad Name empty", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    onePage({
+      timezone: "Asia/Kolkata", total: 2,
+      items: [
+        { leadgenId: "HS-ENQ-1", leadName: "Test Buyer", email: null, phone: "9876543210", facebookPage: "Housing.com", adName: "Sample Heights", adId: null, source: "housing", status: "New Lead", label: "Warm", leadDate: "2026-11-20T05:00:00Z", assigneeName: null },
+        { leadgenId: "", leadName: "Housing.com Lead", email: null, phone: "9123456789", facebookPage: "Housing.com", adName: "-", adId: null, source: "housing", status: "New Lead", label: "Warm", leadDate: "2026-11-20T05:00:00Z", assigneeName: null },
+      ],
+    });
+    const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all", source: "housing" }), headers: { "content-type": "application/json" } }));
+    expect(response.status).toBe(200);
+    const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-20T05:00:00Z"));
+    const lines = (await response.text()).replace(/^﻿/, "").split("\r\n");
+    expect(lines[1]).toBe(`HS-ENQ-1,Test Buyer,"${date}",New Lead,Warm,,9876543210,Housing.com,Sample Heights,,`);
+    expect(lines[2]).toBe(`,Housing.com Lead,"${date}",New Lead,Warm,,9123456789,Housing.com,,,`);
+  });
+});
+
 describe("large downloads", () => {
   const row = (index: number) => ({ leadgenId: `lg-${index}`, leadName: `Lead ${index}`, email: null, phone: null, facebookPage: "Page A", adName: "Ad A", adId: "ad-a", source: "facebook", status: "New Lead", label: "Warm", leadDate: "2026-11-11T05:00:00Z", assigneeName: null });
   const rows = (from: number, count: number) => Array.from({ length: count }, (_, offset) => row(from + offset));

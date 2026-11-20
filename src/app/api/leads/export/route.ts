@@ -71,6 +71,8 @@ function exportAdName(row: { source: string; adName: string }): string | null {
   if ((row.source === "custom_webhook" || row.source === "99acres") && row.adName === "-") return null;
   // A MagicBricks lead's too, when MagicBricks sent no project.
   if (row.source === "magicbricks" && row.adName === "-") return null;
+  // A Housing.com lead's too, when Housing.com sent no project.
+  if (row.source === "housing" && row.adName === "-") return null;
   return row.adName;
 }
 function csvValue(value: string | null): string { const safe = String(value ?? "").replace(/^[=+\-@\t\r]/, "'$&"); return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; }

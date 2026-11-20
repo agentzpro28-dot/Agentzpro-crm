@@ -7,6 +7,8 @@ import type { PortalIntegrationStatus } from "@/lib/portal-leads/portals";
 import { getConnectionOverview, getCustomWebhookOverview, getGoogleAdsOverview, getPortalIntegrationStatuses, type CustomWebhookOverview, type GoogleAdsOverview } from "@/services/crm-api-client";
 import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 import { getMagicbricksStatus } from "@/services/crm-api-client";
+import type { HousingOverview } from "@/lib/housing/housing";
+import { getHousingStatus } from "@/services/crm-api-client";
 
 /** The connection details the dashboard's warning needs; null where that check could not be loaded. */
 export type ConnectionHealth = {
@@ -24,6 +26,8 @@ export type SourceChecks = {
   portals: PortalIntegrationStatus[] | null;
   /** Whether the company created its MagicBricks URL. */
   magicbricks: Pick<MagicbricksOverview, "hasIntegration"> | null;
+  /** Whether the company created its Housing.com URL. */
+  housing: Pick<HousingOverview, "hasIntegration"> | null;
 };
 
 /**
@@ -34,9 +38,9 @@ export type SourceChecks = {
  * webhook was created. A portal (99acres) counts once its webhook URL was generated. Disconnected Pages and a stopped
  * webhook still count (neither row is ever deleted), so the company's existing leads stay filterable. A check that could
  * not be loaded keeps its source, so an error never hides real leads. MagicBricks counts once its webhook URL was
- * generated.
+ * generated. Housing.com counts once its webhook URL was generated.
  */
-export function availableLeadSources({ meta, google, webhook, portals, magicbricks }: SourceChecks): LeadSource[] {
+export function availableLeadSources({ meta, google, webhook, portals, magicbricks, housing }: SourceChecks): LeadSource[] {
   const portal = (id: PortalIntegrationStatus["portal"]) => portals === null || portals.some((item) => item.portal === id && item.hasIntegration);
   const shown: Record<LeadSource, boolean> = {
     facebook: meta === null || meta.pages.length > 0,
@@ -44,6 +48,7 @@ export function availableLeadSources({ meta, google, webhook, portals, magicbric
     custom_webhook: webhook === null || webhook.hasWebhook || webhook.webhookStopped,
     "99acres": portal("99acres"),
     magicbricks: magicbricks === null || magicbricks.hasIntegration,
+    housing: housing === null || housing.hasIntegration,
     telecaller: true,
   };
   return LEAD_SOURCES.filter((source) => shown[source]);
@@ -59,15 +64,16 @@ export function useLeadSources(): { sources: LeadSource[] | null; health: Connec
 
   useEffect(() => {
     let active = true;
-    void Promise.allSettled([getConnectionOverview(), getGoogleAdsOverview(), getCustomWebhookOverview(), getPortalIntegrationStatuses(), getMagicbricksStatus()]).then(([metaResult, googleResult, webhookResult, portalResult, magicbricksResult]) => {
+    void Promise.allSettled([getConnectionOverview(), getGoogleAdsOverview(), getCustomWebhookOverview(), getPortalIntegrationStatuses(), getMagicbricksStatus(), getHousingStatus()]).then(([metaResult, googleResult, webhookResult, portalResult, magicbricksResult, housingResult]) => {
       if (!active) return;
       const meta = metaResult.status === "fulfilled" ? metaResult.value : null;
       const google = googleResult.status === "fulfilled" ? googleResult.value : null;
       const webhook = webhookResult.status === "fulfilled" ? webhookResult.value : null;
       const portals = portalResult.status === "fulfilled" ? portalResult.value.portals : null;
       const magicbricks = magicbricksResult.status === "fulfilled" ? magicbricksResult.value : null;
+      const housing = housingResult.status === "fulfilled" ? housingResult.value : null;
       setState({
-        sources: availableLeadSources({ meta, google, webhook, portals, magicbricks }),
+        sources: availableLeadSources({ meta, google, webhook, portals, magicbricks, housing }),
         health: {
           meta: meta?.connectionStatus ?? null,
           google: google ? { hasWebhook: google.hasWebhook, webhookStopped: google.webhookStopped, needsReconnect: google.needsReconnect } : null,
