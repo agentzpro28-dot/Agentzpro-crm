@@ -73,7 +73,7 @@ export function CustomWebhookConnectionCard() {
   const webhook = overview?.webhook ?? null;
 
   return <section className="panel integration-card integration-card--webhook" aria-labelledby="custom-webhook-title"><div className="panel__body stack">
-    <div className="section-title"><IntegrationCardTitle id="custom-webhook-title" icon={Webhook} title="Webhook" description="Receive leads from any tool that can send a POST request: website form plugins, Zapier, Pabbly or your own software." />
+    <div className="section-title"><IntegrationCardTitle id="custom-webhook-title" icon={Webhook} title="Webhook" description="Receive leads from any tool that can send a POST request: website form plugins, Zapier, Pabbly or your own software." guide={{ href: "/docs/integrations/webhook", text: "Read the setup guide before you create your webhook URL" }} />
       {overview ? <StatusBadge tone={overview.hasWebhook ? "success" : overview.webhookStopped ? "danger" : "info"}>{overview.hasWebhook ? "Receiving leads" : overview.webhookStopped ? "Disconnected" : "Not set up"}</StatusBadge> : null}
     </div>
     {message ? <Notice tone={message.tone} title={message.text} /> : null}

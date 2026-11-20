@@ -46,6 +46,16 @@ describe("ConnectionPageClient Facebook SDK readiness", () => {
     await waitFor(() => expect(connectButtons().every((button) => !button.disabled)).toBe(true));
   });
 
+  it("links to the Facebook setup guide, opening it in a new tab", async () => {
+    loadFacebookSdk.mockResolvedValue(undefined);
+    render(<ConnectionPageClient />);
+    const link = await screen.findByRole("link", { name: /Read the setup guide before you connect your Facebook account/ });
+    expect(link).toHaveAttribute("href", "/docs/integrations/facebook");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveTextContent("(opens in a new tab)");
+  });
+
   it("enables Connect Facebook again when the page remounts after client-side navigation", async () => {
     loadFacebookSdk.mockResolvedValue(undefined);
     const firstVisit = render(<ConnectionPageClient />);

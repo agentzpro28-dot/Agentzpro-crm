@@ -73,7 +73,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
       : overview.hasIntegration && !canManage ? { tone: "success" as const, text: "Set up" } : { tone: "info" as const, text: "Not set up" };
 
   return <section className={`panel integration-card integration-card--portal integration-card--portal-${portal}`} aria-labelledby={titleId}><div className="panel__body stack">
-    <div className="section-title"><IntegrationCardTitle id={titleId} icon={Building2} title={label} description={`Receive property enquiries from your ${label} account automatically.`} />
+    <div className="section-title"><IntegrationCardTitle id={titleId} icon={Building2} title={label} description={`Receive property enquiries from your ${label} account automatically.`} guide={{ href: `/docs/integrations/${portal}`, text: "Read the setup guide before you generate your webhook URL" }} />
       {badge ? <StatusBadge tone={badge.tone}>{badge.text}</StatusBadge> : null}
     </div>
     {message ? <Notice tone={message.tone} title={message.text} /> : null}

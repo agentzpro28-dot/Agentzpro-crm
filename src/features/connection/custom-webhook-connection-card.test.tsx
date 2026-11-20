@@ -35,6 +35,15 @@ describe("CustomWebhookConnectionCard", () => {
     expect(input.type).toBe("text");
   });
 
+  it("links to the Webhook setup guide, opening it in a new tab", async () => {
+    render(<CustomWebhookConnectionCard />);
+    const link = await screen.findByRole("link", { name: /Read the setup guide before you create your webhook URL/ });
+    expect(link).toHaveAttribute("href", "/docs/integrations/webhook");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveTextContent("(opens in a new tab)");
+  });
+
   it("shows the example body and tells the owner never to put the URL in website code", async () => {
     render(<CustomWebhookConnectionCard />);
     expect(await screen.findByLabelText("Example webhook body")).toHaveTextContent("\"lead_id\": \"optional-your-own-id\"");

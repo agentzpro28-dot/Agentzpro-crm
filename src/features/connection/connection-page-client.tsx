@@ -145,7 +145,7 @@ export function ConnectionPageClient() {
   return <div className="stack">
     <PageHeader title="Integrations" description="Connect the tools that send leads to your CRM." />
     <section className="panel integration-card integration-card--facebook" aria-labelledby="facebook-title"><div className="panel__body stack">
-    <div className="section-title"><IntegrationCardTitle id="facebook-title" icon={FacebookIcon} title="Facebook" description="Manage the Facebook Pages that will receive Meta Lead Ads leads." />
+    <div className="section-title"><IntegrationCardTitle id="facebook-title" icon={FacebookIcon} title="Facebook" description="Manage the Facebook Pages that will receive Meta Lead Ads leads." guide={{ href: "/docs/integrations/facebook", text: "Read the setup guide before you connect your Facebook account" }} />
       {overview ? <ConnectionStatusBadge status={overview.connectionStatus} /> : null}
     </div>
     {message ? <Notice tone={message.tone} title={message.text} /> : null}

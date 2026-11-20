@@ -36,6 +36,15 @@ describe("MagicbricksIntegrationCard", () => {
     expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
   });
 
+  it("links to the MagicBricks setup guide, opening it in a new tab", async () => {
+    render(<MagicbricksIntegrationCard />);
+    const link = await screen.findByRole("link", { name: /Read the setup guide before you generate your webhook URL/ });
+    expect(link).toHaveAttribute("href", "/docs/integrations/magicbricks");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveTextContent("(opens in a new tab)");
+  });
+
   it("hides the URL like a password until Show, and Copy URL copies the real URL", async () => {
     render(<MagicbricksIntegrationCard />);
     const input = await screen.findByLabelText("Webhook URL");

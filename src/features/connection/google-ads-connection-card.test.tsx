@@ -43,6 +43,15 @@ describe("GoogleAdsConnectionCard webhook key", () => {
     expect(key.type).toBe("password");
   });
 
+  it("links to the Google Ads setup guide, opening it in a new tab", async () => {
+    render(<GoogleAdsConnectionCard />);
+    const link = await screen.findByRole("link", { name: /Read the setup guide before you connect Google Ads/ });
+    expect(link).toHaveAttribute("href", "/docs/integrations/google-ads");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveTextContent("(opens in a new tab)");
+  });
+
   it("keeps the webhook URL visible", async () => {
     render(<GoogleAdsConnectionCard />);
     const url = await screen.findByLabelText("Webhook URL") as HTMLInputElement;
