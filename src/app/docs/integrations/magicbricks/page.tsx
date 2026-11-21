@@ -63,7 +63,7 @@ export default function MagicbricksDocsPage() {
 
       <section className={styles.section}>
         <h2>Regenerating the URL</h2>
-        <p>The old URL stops working at once. Send the new URL to your MagicBricks account manager.</p>
+        <p>Your old URL keeps working for 7 days. Send the new URL to your MagicBricks account manager before then, or MagicBricks will stop delivering leads.</p>
       </section>
     </article>
   );

@@ -8,6 +8,9 @@ export const MAGICBRICKS_LABEL = "MagicBricks";
 /** The lead's name when MagicBricks sends none. */
 export const MAGICBRICKS_DEFAULT_LEAD_NAME = "MagicBricks Lead";
 
+/** How long the old MagicBricks URL keeps working after the owner regenerates it (save_magicbricks_url in the migration). */
+export const MAGICBRICKS_PREVIOUS_URL_DAYS = 7;
+
 /** Why a MagicBricks request could not be saved, as the Integrations card shows it to the owner. */
 export type MagicbricksFailureReason = "Mobile number or email not found" | "Unsupported format" | "Server error" | "Old webhook URL" | "Not saved";
 
@@ -27,10 +30,16 @@ export interface MagicbricksOverview {
   hasIntegration: boolean;
   /**
    * Only for the owner, and only when the Integrations card asks (details): the URL to give MagicBricks (null when its
-   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL and the last 10
-   * failed requests. Null otherwise.
+   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL, the old URL
+   * while it still works after a regenerate (until when, and its last lead) and the last 10 failed requests. Null
+   * otherwise.
    */
-  integration: { url: string | null; lastLeadAt: string | null; failedRequests: MagicbricksFailedRequestView[] } | null;
+  integration: {
+    url: string | null;
+    lastLeadAt: string | null;
+    previousUrl: { validUntil: string; lastLeadAt: string | null } | null;
+    failedRequests: MagicbricksFailedRequestView[];
+  } | null;
 }
 
 /** What became of one enquiry: stored = a new lead; merged = a note on the lead with the same phone; duplicate = a retry. */

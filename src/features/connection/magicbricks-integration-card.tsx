@@ -6,7 +6,7 @@ import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import styles from "@/features/connection/magicbricks-integration-card.module.css";
 import { formatDateTime } from "@/lib/date-utils";
-import { MAGICBRICKS_LABEL, type MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
+import { MAGICBRICKS_LABEL, MAGICBRICKS_PREVIOUS_URL_DAYS, type MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 import { createMagicbricksIntegration, getMagicbricksOverview } from "@/services/crm-api-client";
 
 type Busy = "create" | "replace" | "refresh" | null;
@@ -92,9 +92,12 @@ export function MagicbricksIntegrationCard() {
                 <button className={styles.copyAction} type="button" aria-pressed={showUrl} onClick={() => setShowUrl((current) => !current)}>{showUrl ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}{showUrl ? "Hide" : "Show"}</button>
                 <button className={`${styles.copyAction}${copied ? ` ${styles.copyActionDone}` : ""}`} type="button" onClick={() => void copyUrl(webhookUrl)}>{copied ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}{copied ? "Copied" : "Copy URL"}</button></div></div>
           </> : <Notice tone="warning" title={`This URL can't be shown. Regenerate it, then send the new URL to your ${LABEL} account manager.`} />}
+          {integration.previousUrl ? <Notice tone={integration.previousUrl.lastLeadAt ? "warning" : "info"} title={integration.previousUrl.lastLeadAt
+            ? `Leads are still arriving on your old URL. It stops on ${formatDateTime(integration.previousUrl.validUntil)}. Send the new URL to your ${LABEL} account manager.`
+            : `Your old URL works until ${formatDateTime(integration.previousUrl.validUntil)}.`} /> : null}
           <div className="button-group">
             {confirmReplace ? <>
-              <span className="field-help">The old URL stops working at once. Send the new URL to your {LABEL} account manager.</span>
+              <span className="field-help">Your old URL keeps working for {MAGICBRICKS_PREVIOUS_URL_DAYS} days. Send the new URL to your {LABEL} account manager before then, or {LABEL} will stop delivering leads.</span>
               <button className="button button--danger" type="button" disabled={busy === "replace"} onClick={() => void run("replace", async () => { await createMagicbricksIntegration(); await reload(); setConfirmReplace(false); setShowUrl(false); setMessage({ tone: "success", text: `New URL created. Send it to your ${LABEL} account manager.` }); })}>{busy === "replace" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Regenerate URL</button>
               <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(false)}><X aria-hidden="true" size={18} />Cancel</button>
             </> : <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Regenerate URL</button>}
