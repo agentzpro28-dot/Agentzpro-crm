@@ -4,8 +4,9 @@
 --
 -- What it does: drops the three functions the migration created (save_portal_url, find_portal_integration,
 -- ingest_portal_lead_on_url), the url_version log column and the previous_* columns with their checks and index. After
--- it the old URL of every 99acres integration is refused at once again, as before the migration. ingest_portal_lead was
--- never changed by the migration, so nothing has to be restored. No other platform's object is touched.
+-- it the old URL of every 99acres integration is refused at once again, as before the migration. No other platform's
+-- object is touched. ingest_portal_lead was dropped later (20261121140000): run
+-- 20261121140000_99acres_drop_old_lead_writer.rollback.sql FIRST, so the restored app has its writer.
 --
 -- ORDER: the app code from branch feature/portal-old-url-7-days calls the three dropped functions for 99acres. If that
 -- code is live, revert/redeploy the app WITHOUT it first, then run this file. Running this while that code is live
