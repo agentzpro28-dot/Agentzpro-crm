@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 const EFFECTIVE_DATE = "October 15, 2026";
-const LAST_UPDATED = "November 12, 2026";
+const LAST_UPDATED = "November 21, 2026";
 
 const TOC = [
   ["agreement", "1. Agreement to these terms"],
@@ -24,16 +24,17 @@ const TOC = [
   ["cancellation", "6. Cancellation and refunds"],
   ["meta", "7. Meta (Facebook) integration"],
   ["google-ads", "8. Google Ads integration"],
-  ["ai-labels", "9. AI lead labels"],
-  ["your-data", "10. Your data and leads"],
-  ["acceptable-use", "11. Acceptable use"],
-  ["suspension", "12. Suspension and termination"],
-  ["availability", "13. Service availability and changes"],
-  ["disclaimer", "14. Disclaimer of warranties"],
-  ["liability", "15. Limitation of liability"],
-  ["governing-law", "16. Governing law"],
-  ["changes", "17. Changes to these terms"],
-  ["contact", "18. Contact us"],
+  ["housing", "9. Housing.com integration"],
+  ["ai-labels", "10. AI lead labels"],
+  ["your-data", "11. Your data and leads"],
+  ["acceptable-use", "12. Acceptable use"],
+  ["suspension", "13. Suspension and termination"],
+  ["availability", "14. Service availability and changes"],
+  ["disclaimer", "15. Disclaimer of warranties"],
+  ["liability", "16. Limitation of liability"],
+  ["governing-law", "17. Governing law"],
+  ["changes", "18. Changes to these terms"],
+  ["contact", "19. Contact us"],
 ] as const;
 
 function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
@@ -90,6 +91,7 @@ export default function TermsPage() {
               <p>AgentzPro lets a business:</p>
               <ul>
                 <li>receive leads from its own Meta Lead Ads (Facebook and Instagram) and Google Ads lead forms;</li>
+                <li>receive property enquiries from its own Housing.com account;</li>
                 <li>add leads by hand, such as people who call the business;</li>
                 <li>see an AI label (Hot, Warm or Cold) on each lead from its ads;</li>
                 <li>organise and track leads, assign them to team members, and record statuses, notes and follow-up tasks with reminders; and</li>
@@ -262,8 +264,33 @@ export default function TermsPage() {
               </ul>
             </section>
 
-            <section id="ai-labels" className={styles.section}>
+            <section id="housing" className={styles.section}>
               <span className={styles.sectionNum}>09</span>
+              <h2 className={styles.sectionTitle}>Housing.com integration</h2>
+              <ul>
+                <li>
+                  <strong>Your own account only.</strong> You may set up the Housing.com integration only for a
+                  Housing.com account that your company owns or is authorised to use.
+                </li>
+                <li>
+                  <strong>Keep your webhook URL private.</strong> The Housing.com webhook URL shown on the Integrations
+                  page is for your company only. Give it only to your Housing.com account manager. You can regenerate it
+                  at any time; the old URL keeps working for 7 days.
+                </li>
+                <li>
+                  <strong>Housing.com&apos;s terms apply.</strong> Your use of Housing.com is governed by your own
+                  agreement with Housing.com. If Housing.com changes or stops lead delivery, this part of the Service may
+                  stop working. We are not responsible for Housing.com&apos;s actions or availability.
+                </li>
+                <li>
+                  <strong>Not affiliated with Housing.com.</strong> AgentzPro is an independent product and is not
+                  endorsed by or affiliated with Housing.com.
+                </li>
+              </ul>
+            </section>
+
+            <section id="ai-labels" className={styles.section}>
+              <span className={styles.sectionNum}>10</span>
               <h2 className={styles.sectionTitle}>AI lead labels</h2>
               <p>
                 AgentzPro gives each lead from your ads an automatic AI label (Hot, Warm or Cold) to help you decide who to contact
@@ -274,7 +301,7 @@ export default function TermsPage() {
             </section>
 
             <section id="your-data" className={styles.section}>
-              <span className={styles.sectionNum}>10</span>
+              <span className={styles.sectionNum}>11</span>
               <h2 className={styles.sectionTitle}>Your data and leads</h2>
               <ul>
                 <li>
@@ -299,7 +326,7 @@ export default function TermsPage() {
             </section>
 
             <section id="acceptable-use" className={styles.section}>
-              <span className={styles.sectionNum}>11</span>
+              <span className={styles.sectionNum}>12</span>
               <h2 className={styles.sectionTitle}>Acceptable use</h2>
               <p>You agree not to:</p>
               <ul>
@@ -314,7 +341,7 @@ export default function TermsPage() {
             </section>
 
             <section id="suspension" className={styles.section}>
-              <span className={styles.sectionNum}>12</span>
+              <span className={styles.sectionNum}>13</span>
               <h2 className={styles.sectionTitle}>Suspension and termination</h2>
               <p>
                 We may suspend or end your access if you break these Terms, if a payment is not made, if your use puts
@@ -325,7 +352,7 @@ export default function TermsPage() {
             </section>
 
             <section id="availability" className={styles.section}>
-              <span className={styles.sectionNum}>13</span>
+              <span className={styles.sectionNum}>14</span>
               <h2 className={styles.sectionTitle}>Service availability and changes</h2>
               <p>
                 We work to keep the Service running, but we do not promise it will be uninterrupted or error free. It may
@@ -336,7 +363,7 @@ export default function TermsPage() {
             </section>
 
             <section id="disclaimer" className={styles.section}>
-              <span className={styles.sectionNum}>14</span>
+              <span className={styles.sectionNum}>15</span>
               <h2 className={styles.sectionTitle}>Disclaimer of warranties</h2>
               <p>
                 The Service is provided &quot;as is&quot; and &quot;as available&quot;. To the fullest extent permitted
@@ -348,7 +375,7 @@ export default function TermsPage() {
             </section>
 
             <section id="liability" className={styles.section}>
-              <span className={styles.sectionNum}>15</span>
+              <span className={styles.sectionNum}>16</span>
               <h2 className={styles.sectionTitle}>Limitation of liability</h2>
               <p>
                 To the fullest extent permitted by law, AI Digital Tamizha is not liable for any indirect, incidental,
@@ -360,7 +387,7 @@ export default function TermsPage() {
             </section>
 
             <section id="governing-law" className={styles.section}>
-              <span className={styles.sectionNum}>16</span>
+              <span className={styles.sectionNum}>17</span>
               <h2 className={styles.sectionTitle}>Governing law</h2>
               <p>
                 These Terms are governed by the laws of India. Any dispute arising from them or from the Service is
@@ -369,7 +396,7 @@ export default function TermsPage() {
             </section>
 
             <section id="changes" className={styles.section}>
-              <span className={styles.sectionNum}>17</span>
+              <span className={styles.sectionNum}>18</span>
               <h2 className={styles.sectionTitle}>Changes to these terms</h2>
               <p>
                 We may update these Terms from time to time. When we do, we change the &quot;Last updated&quot; date at
@@ -379,7 +406,7 @@ export default function TermsPage() {
             </section>
 
             <section id="contact" className={styles.section}>
-              <span className={styles.sectionNum}>18</span>
+              <span className={styles.sectionNum}>19</span>
               <h2 className={styles.sectionTitle}>Contact us</h2>
               <p>If you have any questions about these Terms, please contact us:</p>
               <div className={styles.contactCard}>

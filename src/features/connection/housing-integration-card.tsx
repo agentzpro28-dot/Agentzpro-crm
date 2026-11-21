@@ -76,7 +76,7 @@ export function HousingIntegrationCard() {
       : overview.hasIntegration && !canManage ? { tone: "success" as const, text: "Set up" } : { tone: "info" as const, text: "Not set up" };
 
   return <section className={`panel integration-card ${styles.card}`} aria-labelledby={titleId}><div className="panel__body stack">
-    <div className="section-title"><IntegrationCardTitle id={titleId} icon={House} title={LABEL} description={`Receive property enquiries from your ${LABEL} account automatically.`} />
+    <div className="section-title"><IntegrationCardTitle id={titleId} icon={House} title={LABEL} description={`Receive property enquiries from your ${LABEL} account automatically.`} guide={{ href: "/docs/integrations/housing", text: "Read the setup guide before you generate your webhook URL" }} />
       {badge ? <StatusBadge tone={badge.tone}>{badge.text}</StatusBadge> : null}
     </div>
     {message ? <Notice tone={message.tone} title={message.text} /> : null}

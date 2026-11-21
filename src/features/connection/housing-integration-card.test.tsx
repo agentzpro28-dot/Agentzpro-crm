@@ -37,10 +37,13 @@ describe("HousingIntegrationCard", () => {
     expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
   });
 
-  it("has no setup-guide link yet (the docs come later)", async () => {
+  it("links to the Housing.com setup guide, opening it in a new tab", async () => {
     render(<HousingIntegrationCard />);
-    await screen.findByLabelText("Webhook URL");
-    expect(screen.queryByRole("link", { name: /setup guide/i })).not.toBeInTheDocument();
+    const link = await screen.findByRole("link", { name: /Read the setup guide before you generate your webhook URL/ });
+    expect(link).toHaveAttribute("href", "/docs/integrations/housing");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveTextContent("(opens in a new tab)");
   });
 
   it("hides the URL like a password until Show, and Copy URL copies the real URL", async () => {

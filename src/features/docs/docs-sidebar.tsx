@@ -10,6 +10,7 @@ const INTEGRATION_LINKS = [
   { href: "/docs/integrations/webhook", label: "Webhook" },
   { href: "/docs/integrations/99acres", label: "99acres" },
   { href: "/docs/integrations/magicbricks", label: "MagicBricks" },
+  { href: "/docs/integrations/housing", label: "Housing.com" },
 ] as const;
 
 function NavLinks({ activeHref }: { activeHref: string }) {
@@ -30,7 +31,7 @@ function NavLinks({ activeHref }: { activeHref: string }) {
   );
 }
 
-/** Left-hand doc navigation: one "Integrations" section linking to each of the 5 platform pages. */
+/** Left-hand doc navigation: one "Integrations" section linking to each of the 6 platform pages. */
 export function DocsSidebar() {
   const pathname = usePathname();
   return (
