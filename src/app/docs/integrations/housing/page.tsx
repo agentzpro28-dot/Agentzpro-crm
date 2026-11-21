@@ -58,6 +58,7 @@ export default function HousingDocsPage() {
             <li>When you click it, a <strong>new webhook URL is created</strong>.</li>
             <li>Your <strong>old webhook URL keeps working for only {HOUSING_PREVIOUS_URL_DAYS} days</strong> from the time you create the new URL. <strong>After {HOUSING_PREVIOUS_URL_DAYS} days, the old URL will not accept any leads.</strong></li>
             <li>These {HOUSING_PREVIOUS_URL_DAYS} days are given to save your leads. Within these {HOUSING_PREVIOUS_URL_DAYS} days, <strong>ask your Housing.com account manager to connect the new URL.</strong></li>
+            <li>If your account manager connects the new URL within {HOUSING_PREVIOUS_URL_DAYS} days, <strong>both the old URL and the new URL work until the {HOUSING_PREVIOUS_URL_DAYS} days end.</strong> The same lead will not be added twice to your account. You can also ask your account manager to remove the old URL and add the new URL.</li>
             <li>If the new URL is not connected within {HOUSING_PREVIOUS_URL_DAYS} days, <strong>your Housing.com leads will be lost. AgentzPro is not responsible for these lost leads. It is fully your responsibility.</strong></li>
           </ul>
         </div>

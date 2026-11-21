@@ -53,6 +53,7 @@ export default function NinetyNineAcresDocsPage() {
             <li>When you click it, a <strong>new webhook URL is created</strong>.</li>
             <li>Your <strong>old webhook URL keeps working for only {PORTAL_PREVIOUS_URL_DAYS} days</strong> from the time you create the new URL. <strong>After {PORTAL_PREVIOUS_URL_DAYS} days, the old URL will not accept any leads.</strong></li>
             <li>These {PORTAL_PREVIOUS_URL_DAYS} days are given to save your leads. Within these {PORTAL_PREVIOUS_URL_DAYS} days, <strong>ask your 99acres account manager to connect the new URL.</strong></li>
+            <li>If your account manager connects the new URL within {PORTAL_PREVIOUS_URL_DAYS} days, <strong>both the old URL and the new URL work until the {PORTAL_PREVIOUS_URL_DAYS} days end.</strong> The same lead will not be added twice to your account. You can also ask your account manager to remove the old URL and add the new URL.</li>
             <li>If the new URL is not connected within {PORTAL_PREVIOUS_URL_DAYS} days, <strong>your 99acres leads will be lost. AgentzPro is not responsible for these lost leads. It is fully your responsibility.</strong></li>
           </ul>
         </div>

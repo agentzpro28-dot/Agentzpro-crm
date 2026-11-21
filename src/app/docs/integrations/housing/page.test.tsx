@@ -25,5 +25,6 @@ it("warns clearly not to click Regenerate URL without a real reason: old URL 7 d
   expect(warning).toHaveTextContent("Your old webhook URL keeps working for only 7 days from the time you create the new URL. After 7 days, the old URL will not accept any leads.");
   expect(warning).toHaveTextContent("These 7 days are given to save your leads. Within these 7 days, ask your Housing.com account manager to connect the new URL.");
   expect(warning).toHaveTextContent("If the new URL is not connected within 7 days, your Housing.com leads will be lost. AgentzPro is not responsible for these lost leads. It is fully your responsibility.");
+  expect(warning).toHaveTextContent("If your account manager connects the new URL within 7 days, both the old URL and the new URL work until the 7 days end. The same lead will not be added twice to your account. You can also ask your account manager to remove the old URL and add the new URL.");
   expect(screen.queryByText(/stops working at once/)).not.toBeInTheDocument();
 });
