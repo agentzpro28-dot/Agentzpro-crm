@@ -19,8 +19,7 @@
 .copyAction:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .copyActionDone, .copyActionDone:hover { background: var(--success-bg); color: var(--success); }
 
-/* Send the URL to the account manager. */
-.sendRow { display: grid; gap: 8px; }
+/* "Send to your account manager" line under the URL. */
 .sendLabel { margin: 0; font-size: .875rem; font-weight: 600; }
 
 /* Leads arriving: the Connected box. */
