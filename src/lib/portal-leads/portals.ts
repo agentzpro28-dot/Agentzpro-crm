@@ -24,6 +24,9 @@ export function parsePortalId(value: unknown): PortalId | null {
   return typeof value === "string" && (PORTAL_IDS as readonly string[]).includes(value) ? value as PortalId : null;
 }
 
+/** How long a portal's old URL keeps working after the owner regenerates it (save_portal_url in the migration). */
+export const PORTAL_PREVIOUS_URL_DAYS = 7;
+
 /** Which portals a company has set up: the /leads Source filter and the dashboard's platform switch. */
 export interface PortalIntegrationStatus { portal: PortalId; hasIntegration: boolean }
 
@@ -47,10 +50,16 @@ export interface PortalIntegrationOverview {
   hasIntegration: boolean;
   /**
    * Only for the owner, and only when the Integrations card asks (details): the URL to give the portal (null when its
-   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL and the last 10
-   * failed requests. Null otherwise.
+   * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL, the old URL
+   * while it still works after a regenerate (until when, and its last lead) and the last 10 failed requests. Null
+   * otherwise.
    */
-  integration: { url: string | null; lastLeadAt: string | null; failedRequests: PortalFailedRequestView[] } | null;
+  integration: {
+    url: string | null;
+    lastLeadAt: string | null;
+    previousUrl: { validUntil: string; lastLeadAt: string | null } | null;
+    failedRequests: PortalFailedRequestView[];
+  } | null;
 }
 
 /** What became of one enquiry: stored = a new lead; merged = a note on the lead with the same phone; duplicate = a retry. */

@@ -43,3 +43,26 @@ union all
 select 'nightly purge job at 22:00 GMT (03:30 IST)', exists (select 1 from cron.job where jobname = 'crm-portal-webhook-log-purge' and schedule = '0 22 * * *' and active);
 
 select lead_source, count(*) from public.lead_data group by lead_source order by lead_source;
+
+-- ---------------------------------------------------------------------------
+-- After supabase/migrations/20261121120000_99acres_previous_url.sql (7-day old URL). Read-only. Every row ok = true.
+-- ---------------------------------------------------------------------------
+select '99acres previous URL: 3 new columns' as check_name,
+  (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'portal_integrations'
+    and column_name in ('previous_url_token_hash', 'previous_valid_until', 'previous_last_received_at')) = 3 as ok
+union all
+select '99acres previous URL: checks validated', (select count(*) from pg_constraint where conrelid = 'public.portal_integrations'::regclass
+  and conname in ('portal_integrations_previous_pair_check', 'portal_integrations_previous_differs_check') and convalidated) = 2
+union all
+select '99acres previous URL: unique index on the old hash', exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'portal_integrations_previous_hash_key')
+union all
+select '99acres log: url_version column', exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'portal_webhook_logs' and column_name = 'url_version' and is_nullable = 'NO')
+union all
+select '99acres new functions: service_role only, security definer, empty search_path', bool_and(
+    has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute')
+    and not has_function_privilege('authenticated', p.oid, 'execute') and p.prosecdef and p.proconfig = array['search_path=""'])
+  and count(*) = 3
+  from pg_proc p where p.oid in ('public.save_portal_url(uuid,text,text,text)'::regprocedure, 'public.find_portal_integration(text,text)'::regprocedure,
+    'public.ingest_portal_lead_on_url(uuid,uuid,uuid,text,text,text,text,text,jsonb,jsonb,boolean)'::regprocedure)
+union all
+select '99acres old writer still present (live app until deploy)', to_regprocedure('public.ingest_portal_lead(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb,boolean)') is not null;

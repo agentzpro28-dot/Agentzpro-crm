@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), from: vi.fn() }));
+const mocks = vi.hoisted(() => ({ access: vi.fn(), from: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/server/auth/access", () => ({ requireCrmAccess: mocks.access }));
-vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from }) }));
+vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 vi.mock("@/lib/server/token-crypto", () => ({ encryptToken: (value: string) => `enc:${value}`, decryptToken: (value: string) => { if (value === "unreadable") throw new Error("bad key"); return value.replace(/^enc:/, ""); } }));
 
 import { hashPortalWebhookToken } from "@/lib/server/portal-leads/portal-lead-intake-service";
@@ -23,7 +23,10 @@ function chain(result: { data?: unknown; error: unknown }) {
   return Object.assign(query, { then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve) });
 }
 
-const row = (extra: Record<string, unknown> = {}) => ({ id: "integration-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null, ...extra });
+const row = (extra: Record<string, unknown> = {}) => ({
+  id: "integration-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null,
+  previous_valid_until: null, previous_last_received_at: null, ...extra,
+});
 const FAILED = { id: "log-1", created_at: "2026-11-17T10:00:00Z", error_message: "Send mobile or email." };
 
 /**
@@ -68,7 +71,7 @@ describe("PortalIntegrationService.getOverview", () => {
     await expect(service.getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({
       portal: "99acres", canManage: true, hasIntegration: true,
       integration: {
-        url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z",
+        url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z", previousUrl: null,
         failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" }],
       },
     });
@@ -77,6 +80,23 @@ describe("PortalIntegrationService.getOverview", () => {
     expect(failed.eq).toHaveBeenCalledWith("status", "failed");
     expect(failed.limit).toHaveBeenCalledWith(10);
     await expect(service.getOverview("99acres", ORIGIN)).resolves.toEqual({ portal: "99acres", canManage: true, hasIntegration: true, integration: null });
+  });
+
+  it("reads the old-URL columns, and shows the old URL only while it still works", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-21T06:00:00Z"));
+    mocks.access.mockResolvedValue(OWNER);
+    const integration = chain({ data: row({ previous_valid_until: "2026-11-28T06:00:00Z", previous_last_received_at: "2026-11-21T05:00:00Z" }), error: null });
+    mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? integration : chain({ data: [], error: null }));
+    const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
+    expect(integration.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at");
+    expect(overview.integration?.previousUrl).toEqual({ validUntil: "2026-11-28T06:00:00Z", lastLeadAt: "2026-11-21T05:00:00Z" });
+
+    // Its 7 days are over: the database refuses it, so the card no longer mentions it.
+    mocks.from.mockImplementation((table: string) => table === "portal_integrations"
+      ? chain({ data: row({ previous_valid_until: "2026-11-21T05:59:59Z", previous_last_received_at: "2026-11-21T05:00:00Z" }), error: null })
+      : chain({ data: [], error: null }));
+    expect((await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).integration?.previousUrl).toBeNull();
   });
 
   it("reads only the time and reason of a failed request: the raw body, URL parameters and headers never reach the browser", async () => {
@@ -201,40 +221,32 @@ describe("PortalIntegrationService.createOrReplace", () => {
     mocks.access.mockResolvedValue(EMPLOYEE);
     await expect(new PortalIntegrationService().createOrReplace("99acres", ORIGIN)).rejects.toMatchObject({ status: 403, code: "PORTAL_OWNER_REQUIRED" });
     expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
-  it("creates the company's URL, storing only the token's hash and an encrypted copy", async () => {
+  it("creates or replaces the URL in one database call, storing only the token's hash and an encrypted copy", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const read = chain({ data: null, error: null });
-    const insert = chain({ error: null });
-    mocks.from.mockReturnValueOnce(read).mockReturnValueOnce(insert);
+    mocks.rpc.mockResolvedValue({ data: { replaced: false, previous_valid_until: null }, error: null });
     const { url } = await new PortalIntegrationService().createOrReplace("99acres", ORIGIN);
     const token = url.split("/").at(-1) ?? "";
     expect(url).toMatch(new RegExp(`^${ORIGIN}/api/webhooks/leads/99acres/[A-Za-z0-9_-]{43}$`));
-    expect(insert.insert).toHaveBeenCalledWith({ tenant_id: "tenant-a", portal_name: "99acres", url_token_hash: hashPortalWebhookToken(token), encrypted_url_token: `enc:${token}`, is_active: true });
+    expect(mocks.rpc).toHaveBeenCalledWith("save_portal_url", { p_tenant_id: "tenant-a", p_portal: "99acres", p_token_hash: hashPortalWebhookToken(token), p_encrypted_token: `enc:${token}` });
+    expect(mocks.rpc.mock.calls[0][1]).not.toHaveProperty("p_token");
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
-  it("replaces the token in place (the old URL then answers 404) and records when", async () => {
+  it("makes a new URL on every call (a regenerate: the old URL keeps working for 7 days in the database)", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const update = chain({ error: null });
-    mocks.from.mockReturnValueOnce(chain({ data: { id: "integration-1" }, error: null })).mockReturnValueOnce(update);
-    const { url } = await new PortalIntegrationService().createOrReplace("99acres", ORIGIN);
-    expect(update.update).toHaveBeenCalledWith(expect.objectContaining({ url_token_hash: hashPortalWebhookToken(url.split("/").at(-1) ?? ""), is_active: true, url_rotated_at: expect.any(String) }));
-    expect(update.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
-    expect(update.eq).toHaveBeenCalledWith("portal_name", "99acres");
+    mocks.rpc.mockResolvedValue({ data: { replaced: true, previous_valid_until: "2026-11-28T06:00:00Z" }, error: null });
+    const service = new PortalIntegrationService();
+    const first = await service.createOrReplace("99acres", ORIGIN);
+    const second = await service.createOrReplace("99acres", ORIGIN);
+    expect(first.url).not.toBe(second.url);
   });
 
-  it("replaces instead when another request created it at the same moment", async () => {
+  it("fails with 500 when the database cannot save", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const update = chain({ error: null });
-    mocks.from.mockReturnValueOnce(chain({ data: null, error: null })).mockReturnValueOnce(chain({ error: { code: "23505" } })).mockReturnValueOnce(update);
-    await new PortalIntegrationService().createOrReplace("99acres", ORIGIN);
-    expect(update.update).toHaveBeenCalled();
-  });
-
-  it("fails with 500 on any other save error", async () => {
-    mocks.access.mockResolvedValue(OWNER);
-    mocks.from.mockReturnValueOnce(chain({ data: null, error: null })).mockReturnValueOnce(chain({ error: { code: "XX000" } }));
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000" } });
     await expect(new PortalIntegrationService().createOrReplace("99acres", ORIGIN)).rejects.toMatchObject({ status: 500, code: "PORTAL_SAVE_FAILED" });
   });
 });

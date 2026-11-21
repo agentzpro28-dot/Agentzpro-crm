@@ -63,7 +63,7 @@ export default function NinetyNineAcresDocsPage() {
 
       <section className={styles.section}>
         <h2>Regenerating the URL</h2>
-        <p>The old URL stops working at once. Send the new URL to 99acres.</p>
+        <p>Your old URL keeps working for 7 days. Send the new URL to 99acres before then, or 99acres will stop delivering leads.</p>
       </section>
     </article>
   );
