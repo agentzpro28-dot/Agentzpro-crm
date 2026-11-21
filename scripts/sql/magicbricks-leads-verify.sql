@@ -40,10 +40,10 @@ select 'anon/authenticated have no table access', not (has_table_privilege('anon
 union all
 select 'service_role cannot delete logs or integrations', not (has_table_privilege('service_role', 'public.magicbricks_webhook_logs', 'delete') or has_table_privilege('service_role', 'public.magicbricks_integrations', 'delete'))
 union all
-select 'ingest_magicbricks_lead: service_role only, security definer, empty search_path',
+select 'ingest_magicbricks_lead_on_url: service_role only, security definer, empty search_path',
   has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute')
   and p.prosecdef and p.proconfig = array['search_path=""']
-  from pg_proc p where p.oid = 'public.ingest_magicbricks_lead(uuid,uuid,uuid,text,text,text,jsonb,jsonb)'::regprocedure
+  from pg_proc p where p.oid = 'public.ingest_magicbricks_lead_on_url(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb)'::regprocedure
 union all
 select 'purge function private to postgres', not has_function_privilege('service_role', 'private.purge_magicbricks_webhook_logs()', 'execute')
 union all
@@ -74,4 +74,4 @@ select 'MagicBricks new functions: service_role only, security definer, empty se
   from pg_proc p where p.oid in ('public.save_magicbricks_url(uuid,text,text)'::regprocedure, 'public.find_magicbricks_integration(text)'::regprocedure,
     'public.ingest_magicbricks_lead_on_url(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb)'::regprocedure)
 union all
-select 'MagicBricks old writer still present (live app until deploy)', to_regprocedure('public.ingest_magicbricks_lead(uuid,uuid,uuid,text,text,text,jsonb,jsonb)') is not null;
+select 'MagicBricks old writer dropped (20261121150000)', to_regprocedure('public.ingest_magicbricks_lead(uuid,uuid,uuid,text,text,text,jsonb,jsonb)') is null;
