@@ -11,7 +11,7 @@ vi.mock("@/services/crm-api-client", () => ({
   createHousingIntegration: vi.fn(),
 }));
 
-const { HousingIntegrationCard, housingAccountManagerMessage, housingEmailLink, housingRelativeTime, housingWhatsAppLink } = await import("@/features/connection/housing-integration-card");
+const { HousingIntegrationCard, housingRelativeTime } = await import("@/features/connection/housing-integration-card");
 const api = await import("@/services/crm-api-client");
 
 let writeText: ReturnType<typeof vi.fn>;
@@ -54,19 +54,11 @@ describe("HousingIntegrationCard", () => {
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
-  it("opens the owner's email or WhatsApp with the URL and a sample-payload request ready", async () => {
+  it("says to send the URL to the account manager, with no Email or WhatsApp button", async () => {
     render(<HousingIntegrationCard />);
-    const email = await screen.findByRole("link", { name: "Email" });
-    const whatsapp = screen.getByRole("link", { name: /WhatsApp/ });
-    expect(email).toHaveAttribute("href", housingEmailLink(URL_VALUE));
-    expect(whatsapp).toHaveAttribute("href", housingWhatsAppLink(URL_VALUE));
-    expect(whatsapp).toHaveAttribute("target", "_blank");
-    expect(whatsapp).toHaveAttribute("rel", "noopener noreferrer");
-    const message = housingAccountManagerMessage(URL_VALUE);
-    expect(message).toContain(URL_VALUE);
-    expect(message).toContain("sample lead payload");
-    expect(decodeURIComponent(email.getAttribute("href") ?? "")).toContain(message);
-    expect(decodeURIComponent((whatsapp.getAttribute("href") ?? "").replace("https://wa.me/?text=", ""))).toBe(message);
+    expect(await screen.findByText("Send to your Housing.com account manager")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Email/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /WhatsApp/ })).not.toBeInTheDocument();
   });
 
   it("asks before Regenerate, says the old URL works 7 more days, and keeps the URL on Cancel", async () => {
@@ -117,7 +109,7 @@ describe("HousingIntegrationCard", () => {
     vi.mocked(api.getHousingOverview).mockResolvedValue({ ...WAITING, integration: { ...WAITING.integration!, url: null } });
     render(<HousingIntegrationCard />);
     expect(await screen.findByText(/This URL can't be shown\. Regenerate it/)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Email" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Send to your Housing.com account manager")).not.toBeInTheDocument();
   });
 
   it("tells an employee that only the owner can set it up, with no URL", async () => {

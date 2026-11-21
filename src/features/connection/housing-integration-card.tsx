@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Eye, EyeOff, House, KeyRound, Loader2, Mail, MessageCircle, RefreshCw, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, House, KeyRound, Loader2, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
@@ -15,8 +15,8 @@ type Message = { tone: "success" | "danger" | "warning" | "info"; text: string }
 const LABEL = HOUSING_LABEL;
 
 /**
- * Housing.com on the Integrations page: the company's own secret webhook URL, buttons that open the owner's email or
- * WhatsApp with the URL ready to send to the Housing.com account manager, and the "Check that leads arrive" step. After
+ * Housing.com on the Integrations page: the company's own secret webhook URL (to send to the Housing.com account
+ * manager) and the "Check that leads arrive" step. After
  * a regenerate the old URL keeps working for 7 days; the card says until when, and warns while leads still arrive only
  * on the old URL. Only when a request could not be saved does a "Failed requests" list appear (the last 10: when and
  * why). The URL is the only secret, so it is shown only to the owner, hidden until asked.
@@ -93,13 +93,7 @@ export function HousingIntegrationCard() {
               <div className={styles.copyRow}><input id={urlInputId} type={showUrl ? "text" : "password"} autoComplete="off" readOnly value={webhookUrl} onFocus={(event) => event.currentTarget.select()} />
                 <button className={styles.copyAction} type="button" aria-pressed={showUrl} onClick={() => setShowUrl((current) => !current)}>{showUrl ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}{showUrl ? "Hide" : "Show"}</button>
                 <button className={`${styles.copyAction}${copied ? ` ${styles.copyActionDone}` : ""}`} type="button" onClick={() => void copyUrl(webhookUrl)}>{copied ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}{copied ? "Copied" : "Copy URL"}</button></div></div>
-            <div className={styles.sendRow}>
-              <p className={styles.sendLabel}>Send to your {LABEL} account manager</p>
-              <div className="button-group">
-                <a className="button button--secondary" href={housingEmailLink(webhookUrl)}><Mail aria-hidden="true" size={18} />Email</a>
-                <a className="button button--secondary" href={housingWhatsAppLink(webhookUrl)} target="_blank" rel="noopener noreferrer"><MessageCircle aria-hidden="true" size={18} />WhatsApp<span className="sr-only"> (opens in a new tab)</span></a>
-              </div>
-            </div>
+            <p className={styles.sendLabel}>Send to your {LABEL} account manager</p>
           </> : <Notice tone="warning" title={`This URL can't be shown. Regenerate it, then send the new URL to your ${LABEL} account manager.`} />}
           {previousUrl ? <Notice tone={previousUrl.lastLeadAt ? "warning" : "info"} title={previousUrl.lastLeadAt
             ? `Leads are still arriving on your old URL. It stops on ${formatDateTime(previousUrl.validUntil)}. Send the new URL to your ${LABEL} account manager.`
@@ -142,26 +136,6 @@ export function HousingIntegrationCard() {
       </div> : null}
     </> : null}
   </div></section>;
-}
-
-/** The message for the account manager: the URL, the formats it takes, and a request for a sample lead. */
-export function housingAccountManagerMessage(url: string): string {
-  return [
-    `Hi, please enable ${LABEL} lead push for our account and send our leads to this webhook URL:`,
-    url,
-    "It accepts POST (JSON or form data) or GET with URL parameters.",
-    "Please also share a sample lead payload. Thank you.",
-  ].join("\n");
-}
-
-/** Opens the owner's own email app with the message ready; nothing is sent by AgentzPro. */
-export function housingEmailLink(url: string): string {
-  return `mailto:?subject=${encodeURIComponent(`${LABEL} lead webhook URL`)}&body=${encodeURIComponent(housingAccountManagerMessage(url))}`;
-}
-
-/** Opens WhatsApp with the message ready; the owner picks the contact. Nothing is sent by AgentzPro. */
-export function housingWhatsAppLink(url: string): string {
-  return `https://wa.me/?text=${encodeURIComponent(housingAccountManagerMessage(url))}`;
 }
 
 /** "just now", "5 minutes ago", "yesterday", "3 days ago". */
