@@ -9,7 +9,7 @@ import styles from "../privacy-policy/privacy-policy.module.css";
 export const metadata: Metadata = {
   title: { absolute: "Terms of Service | AgentzPro" },
   description:
-    "Terms of Service for AgentzPro, operated by AI Digital Tamizha: accounts, free trial, subscriptions, cancellation and refunds, the Meta and Google Ads integrations, acceptable use, and your data.",
+    "Terms of Service for AgentzPro, operated by AI Digital Tamizha: accounts, free trial, subscriptions, cancellation and refunds, the Meta, Google Ads, 99acres, MagicBricks, Housing.com and webhook integrations, acceptable use, and your data.",
 };
 
 const EFFECTIVE_DATE = "October 15, 2026";
@@ -25,16 +25,19 @@ const TOC = [
   ["meta", "7. Meta (Facebook) integration"],
   ["google-ads", "8. Google Ads integration"],
   ["housing", "9. Housing.com integration"],
-  ["ai-labels", "10. AI lead labels"],
-  ["your-data", "11. Your data and leads"],
-  ["acceptable-use", "12. Acceptable use"],
-  ["suspension", "13. Suspension and termination"],
-  ["availability", "14. Service availability and changes"],
-  ["disclaimer", "15. Disclaimer of warranties"],
-  ["liability", "16. Limitation of liability"],
-  ["governing-law", "17. Governing law"],
-  ["changes", "18. Changes to these terms"],
-  ["contact", "19. Contact us"],
+  ["99acres", "10. 99acres integration"],
+  ["magicbricks", "11. MagicBricks integration"],
+  ["webhook", "12. Webhook integration"],
+  ["ai-labels", "13. AI lead labels"],
+  ["your-data", "14. Your data and leads"],
+  ["acceptable-use", "15. Acceptable use"],
+  ["suspension", "16. Suspension and termination"],
+  ["availability", "17. Service availability and changes"],
+  ["disclaimer", "18. Disclaimer of warranties"],
+  ["liability", "19. Limitation of liability"],
+  ["governing-law", "20. Governing law"],
+  ["changes", "21. Changes to these terms"],
+  ["contact", "22. Contact us"],
 ] as const;
 
 function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
@@ -61,7 +64,8 @@ export default function TermsPage() {
             These Terms of Service (&quot;Terms&quot;) are a legal agreement between you and{" "}
             <strong>AI Digital Tamizha</strong> (&quot;we&quot;, &quot;us&quot; or &quot;our&quot;), the owner and
             operator of <strong>AgentzPro</strong> (the &quot;Service&quot;), a multi-tenant, business-to-business lead
-            management CRM that connects to Meta (Facebook and Instagram) Lead Ads and Google Ads. Please read them
+            management CRM that receives leads from Meta (Facebook and Instagram) Lead Ads, Google Ads, 99acres,
+            MagicBricks, Housing.com and your own tools (webhook). Please read them
             carefully. By creating an account or using the Service, you agree to these Terms and to our{" "}
             <Link className={styles.link} href="/privacy-policy">Privacy Policy</Link>.
           </p>
@@ -91,9 +95,10 @@ export default function TermsPage() {
               <p>AgentzPro lets a business:</p>
               <ul>
                 <li>receive leads from its own Meta Lead Ads (Facebook and Instagram) and Google Ads lead forms;</li>
-                <li>receive property enquiries from its own Housing.com account;</li>
+                <li>receive property enquiries from its own 99acres, MagicBricks and Housing.com accounts;</li>
+                <li>receive leads from its own tools through a webhook, such as website forms, Zapier or Pabbly;</li>
                 <li>add leads by hand, such as people who call the business;</li>
-                <li>see an AI label (Hot, Warm or Cold) on each lead from its ads;</li>
+                <li>see an AI label (Hot, Warm or Cold) on each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com or its webhook;</li>
                 <li>organise and track leads, assign them to team members, and record statuses, notes and follow-up tasks with reminders; and</li>
                 <li>view a dashboard of its leads and download it as a PDF.</li>
               </ul>
@@ -274,8 +279,14 @@ export default function TermsPage() {
                 </li>
                 <li>
                   <strong>Keep your webhook URL private.</strong> The Housing.com webhook URL shown on the Integrations
-                  page is for your company only. Give it only to your Housing.com account manager. You can regenerate it
-                  at any time; the old URL keeps working for 7 days.
+                  page is for your company only. Give it only to your Housing.com account manager.
+                </li>
+                <li>
+                  <strong>Regenerate the URL only if it has leaked.</strong> When you regenerate it, a new webhook URL is
+                  created and the old URL keeps working for only 7 days. After 7 days, the old URL will not accept any
+                  leads. Within these 7 days, you must ask your Housing.com account manager to connect the new URL. If the new URL is not
+                  connected within 7 days, your Housing.com leads will be lost. AgentzPro is not responsible for these lost
+                  leads; it is fully your responsibility.
                 </li>
                 <li>
                   <strong>Housing.com&apos;s terms apply.</strong> Your use of Housing.com is governed by your own
@@ -289,19 +300,104 @@ export default function TermsPage() {
               </ul>
             </section>
 
-            <section id="ai-labels" className={styles.section}>
+            <section id="99acres" className={styles.section}>
               <span className={styles.sectionNum}>10</span>
+              <h2 className={styles.sectionTitle}>99acres integration</h2>
+              <ul>
+                <li>
+                  <strong>Your own account only.</strong> You may set up the 99acres integration only for a
+                  99acres account that your company owns or is authorised to use.
+                </li>
+                <li>
+                  <strong>Keep your webhook URL private.</strong> The 99acres webhook URL shown on the Integrations
+                  page is for your company only. Give it only to your 99acres account manager.
+                </li>
+                <li>
+                  <strong>Regenerate the URL only if it has leaked.</strong> When you regenerate it, a new webhook URL is
+                  created and the old URL keeps working for only 7 days. After 7 days, the old URL will not accept any
+                  leads. Within these 7 days, you must ask your 99acres account manager to connect the new URL. If the new URL is not
+                  connected within 7 days, your 99acres leads will be lost. AgentzPro is not responsible for these lost
+                  leads; it is fully your responsibility.
+                </li>
+                <li>
+                  <strong>99acres&apos;s terms apply.</strong> Your use of 99acres is governed by your own
+                  agreement with 99acres. If 99acres changes or stops lead delivery, this part of the Service may
+                  stop working. We are not responsible for 99acres&apos;s actions or availability.
+                </li>
+                <li>
+                  <strong>Not affiliated with 99acres.</strong> AgentzPro is an independent product and is not
+                  endorsed by or affiliated with 99acres.
+                </li>
+              </ul>
+            </section>
+
+            <section id="magicbricks" className={styles.section}>
+              <span className={styles.sectionNum}>11</span>
+              <h2 className={styles.sectionTitle}>MagicBricks integration</h2>
+              <ul>
+                <li>
+                  <strong>Your own account only.</strong> You may set up the MagicBricks integration only for a
+                  MagicBricks account that your company owns or is authorised to use.
+                </li>
+                <li>
+                  <strong>Keep your webhook URL private.</strong> The MagicBricks webhook URL shown on the Integrations
+                  page is for your company only. Give it only to your MagicBricks account manager.
+                </li>
+                <li>
+                  <strong>Regenerate the URL only if it has leaked.</strong> When you regenerate it, a new webhook URL is
+                  created and the old URL keeps working for only 7 days. After 7 days, the old URL will not accept any
+                  leads. Within these 7 days, you must ask your MagicBricks account manager to connect the new URL. If the new URL is not
+                  connected within 7 days, your MagicBricks leads will be lost. AgentzPro is not responsible for these lost
+                  leads; it is fully your responsibility.
+                </li>
+                <li>
+                  <strong>MagicBricks&apos;s terms apply.</strong> Your use of MagicBricks is governed by your own
+                  agreement with MagicBricks. If MagicBricks changes or stops lead delivery, this part of the Service may
+                  stop working. We are not responsible for MagicBricks&apos;s actions or availability.
+                </li>
+                <li>
+                  <strong>Not affiliated with MagicBricks.</strong> AgentzPro is an independent product and is not
+                  endorsed by or affiliated with MagicBricks.
+                </li>
+              </ul>
+            </section>
+
+            <section id="webhook" className={styles.section}>
+              <span className={styles.sectionNum}>12</span>
+              <h2 className={styles.sectionTitle}>Webhook integration</h2>
+              <ul>
+                <li>
+                  <strong>Your own tools only.</strong> You may add the webhook URL only to tools your company owns or
+                  is authorised to use, such as your website forms, Zapier, Pabbly or your own software. You are
+                  responsible for the leads those tools send.
+                </li>
+                <li>
+                  <strong>Keep your webhook URL private.</strong> The webhook URL shown on the Integrations page is for
+                  your company only. Anyone who has it can send leads to your CRM, so never put it in your
+                  website&apos;s HTML or JavaScript.
+                </li>
+                <li>
+                  <strong>Regenerate the URL only if it has leaked.</strong> When you regenerate it, the old URL stops
+                  working at once. You must paste the new URL into every tool that sends leads. Leads sent to the old
+                  URL will be lost. AgentzPro is not responsible for these lost leads; it is fully your responsibility.
+                </li>
+              </ul>
+            </section>
+
+            <section id="ai-labels" className={styles.section}>
+              <span className={styles.sectionNum}>13</span>
               <h2 className={styles.sectionTitle}>AI lead labels</h2>
               <p>
-                AgentzPro gives each lead from your ads an automatic AI label (Hot, Warm or Cold) to help you decide who to contact
-                first. Labels are suggestions made by an AI model and can be wrong. You decide how to treat each lead.
+                AgentzPro gives each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com or your webhook an
+                automatic AI label (Hot, Warm or Cold) to help you decide who to contact first. Leads your team adds by
+                hand (call-in leads) are not labelled. Labels are suggestions made by an AI model and can be wrong. You decide how to treat each lead.
                 How lead data is prepared and sent for labelling, with names, email addresses and phone numbers removed,
                 is described in our Privacy Policy.
               </p>
             </section>
 
             <section id="your-data" className={styles.section}>
-              <span className={styles.sectionNum}>11</span>
+              <span className={styles.sectionNum}>14</span>
               <h2 className={styles.sectionTitle}>Your data and leads</h2>
               <ul>
                 <li>
@@ -326,7 +422,7 @@ export default function TermsPage() {
             </section>
 
             <section id="acceptable-use" className={styles.section}>
-              <span className={styles.sectionNum}>12</span>
+              <span className={styles.sectionNum}>15</span>
               <h2 className={styles.sectionTitle}>Acceptable use</h2>
               <p>You agree not to:</p>
               <ul>
@@ -341,7 +437,7 @@ export default function TermsPage() {
             </section>
 
             <section id="suspension" className={styles.section}>
-              <span className={styles.sectionNum}>13</span>
+              <span className={styles.sectionNum}>16</span>
               <h2 className={styles.sectionTitle}>Suspension and termination</h2>
               <p>
                 We may suspend or end your access if you break these Terms, if a payment is not made, if your use puts
@@ -352,7 +448,7 @@ export default function TermsPage() {
             </section>
 
             <section id="availability" className={styles.section}>
-              <span className={styles.sectionNum}>14</span>
+              <span className={styles.sectionNum}>17</span>
               <h2 className={styles.sectionTitle}>Service availability and changes</h2>
               <p>
                 We work to keep the Service running, but we do not promise it will be uninterrupted or error free. It may
@@ -363,7 +459,7 @@ export default function TermsPage() {
             </section>
 
             <section id="disclaimer" className={styles.section}>
-              <span className={styles.sectionNum}>15</span>
+              <span className={styles.sectionNum}>18</span>
               <h2 className={styles.sectionTitle}>Disclaimer of warranties</h2>
               <p>
                 The Service is provided &quot;as is&quot; and &quot;as available&quot;. To the fullest extent permitted
@@ -375,7 +471,7 @@ export default function TermsPage() {
             </section>
 
             <section id="liability" className={styles.section}>
-              <span className={styles.sectionNum}>16</span>
+              <span className={styles.sectionNum}>19</span>
               <h2 className={styles.sectionTitle}>Limitation of liability</h2>
               <p>
                 To the fullest extent permitted by law, AI Digital Tamizha is not liable for any indirect, incidental,
@@ -387,7 +483,7 @@ export default function TermsPage() {
             </section>
 
             <section id="governing-law" className={styles.section}>
-              <span className={styles.sectionNum}>17</span>
+              <span className={styles.sectionNum}>20</span>
               <h2 className={styles.sectionTitle}>Governing law</h2>
               <p>
                 These Terms are governed by the laws of India. Any dispute arising from them or from the Service is
@@ -396,7 +492,7 @@ export default function TermsPage() {
             </section>
 
             <section id="changes" className={styles.section}>
-              <span className={styles.sectionNum}>18</span>
+              <span className={styles.sectionNum}>21</span>
               <h2 className={styles.sectionTitle}>Changes to these terms</h2>
               <p>
                 We may update these Terms from time to time. When we do, we change the &quot;Last updated&quot; date at
@@ -406,7 +502,7 @@ export default function TermsPage() {
             </section>
 
             <section id="contact" className={styles.section}>
-              <span className={styles.sectionNum}>19</span>
+              <span className={styles.sectionNum}>22</span>
               <h2 className={styles.sectionTitle}>Contact us</h2>
               <p>If you have any questions about these Terms, please contact us:</p>
               <div className={styles.contactCard}>

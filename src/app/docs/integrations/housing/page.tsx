@@ -50,6 +50,19 @@ export default function HousingDocsPage() {
         </ol>
       </section>
 
+      <section className={styles.section} aria-labelledby="regenerate-warning">
+        <div className={styles.warning} role="note">
+          <h2 id="regenerate-warning"><span aria-hidden="true">⚠ </span>Warning: Do not click &quot;Regenerate URL&quot; without a real reason</h2>
+          <ul>
+            <li>Click <strong>Regenerate URL</strong> only if your webhook URL has leaked (someone outside your company has it).</li>
+            <li>When you click it, a <strong>new webhook URL is created</strong>.</li>
+            <li>Your <strong>old webhook URL keeps working for only {HOUSING_PREVIOUS_URL_DAYS} days</strong> from the time you create the new URL. <strong>After {HOUSING_PREVIOUS_URL_DAYS} days, the old URL will not accept any leads.</strong></li>
+            <li>These {HOUSING_PREVIOUS_URL_DAYS} days are given to save your leads. Within these {HOUSING_PREVIOUS_URL_DAYS} days, <strong>ask your Housing.com account manager to connect the new URL.</strong></li>
+            <li>If the new URL is not connected within {HOUSING_PREVIOUS_URL_DAYS} days, <strong>your Housing.com leads will be lost. AgentzPro is not responsible for these lost leads. It is fully your responsibility.</strong></li>
+          </ul>
+        </div>
+      </section>
+
       <section className={styles.section}>
         <h2>Duplicate enquiries</h2>
         <p>
@@ -65,11 +78,6 @@ export default function HousingDocsPage() {
           a plain reason and when it happened. Contact AgentzPro support with that time. The request itself is kept
           with our support team, not shown on the page.
         </p>
-      </section>
-
-      <section className={styles.section}>
-        <h2>Regenerating the URL</h2>
-        <p>{`Your old URL keeps working for ${HOUSING_PREVIOUS_URL_DAYS} days. Send the new URL to your ${LABEL} account manager before then, or ${LABEL} will stop delivering leads.`}</p>
       </section>
     </article>
   );
