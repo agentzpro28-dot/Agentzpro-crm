@@ -431,7 +431,8 @@ describe("UserMenu settings dialog", () => {
     expect(focusedWhenShown).toBe(within(popup).getByRole("button", { name: "OK" }));
     expect(sendInvitations).toHaveBeenCalledWith([{ email: "ravi@example.com", role: "employee" }]);
     expect(within(dialog).getByPlaceholderText("jane@example.com")).toHaveValue("");
-    expect(getTenantMembers).toHaveBeenCalledTimes(2);
+    // The quiet member reload runs in an effect after the popup is shown, so wait for it.
+    await waitFor(() => expect(getTenantMembers).toHaveBeenCalledTimes(2));
 
     fireEvent.click(within(popup).getByRole("button", { name: "OK" }));
     expect(within(dialog).queryByRole("alertdialog")).not.toBeInTheDocument();
