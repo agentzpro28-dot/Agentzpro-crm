@@ -52,3 +52,26 @@ union all
 select '99acres purge job unchanged (22:00 GMT)', exists (select 1 from cron.job where jobname = 'crm-portal-webhook-log-purge' and schedule = '0 22 * * *' and active);
 
 select lead_source, count(*) from public.lead_data group by lead_source order by lead_source;
+
+-- ---------------------------------------------------------------------------
+-- After supabase/migrations/20261121130000_magicbricks_previous_url.sql (7-day old URL). Read-only. Every row ok = true.
+-- ---------------------------------------------------------------------------
+select 'MagicBricks previous URL: 3 new columns' as check_name,
+  (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'magicbricks_integrations'
+    and column_name in ('previous_url_token_hash', 'previous_valid_until', 'previous_last_received_at')) = 3 as ok
+union all
+select 'MagicBricks previous URL: checks validated', (select count(*) from pg_constraint where conrelid = 'public.magicbricks_integrations'::regclass
+  and conname in ('magicbricks_integrations_previous_pair_check', 'magicbricks_integrations_previous_differs_check') and convalidated) = 2
+union all
+select 'MagicBricks previous URL: unique index on the old hash', exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'magicbricks_integrations_previous_hash_key')
+union all
+select 'MagicBricks log: url_version column', exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'magicbricks_webhook_logs' and column_name = 'url_version' and is_nullable = 'NO')
+union all
+select 'MagicBricks new functions: service_role only, security definer, empty search_path', bool_and(
+    has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute')
+    and not has_function_privilege('authenticated', p.oid, 'execute') and p.prosecdef and p.proconfig = array['search_path=""'])
+  and count(*) = 3
+  from pg_proc p where p.oid in ('public.save_magicbricks_url(uuid,text,text)'::regprocedure, 'public.find_magicbricks_integration(text)'::regprocedure,
+    'public.ingest_magicbricks_lead_on_url(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb)'::regprocedure)
+union all
+select 'MagicBricks old writer still present (live app until deploy)', to_regprocedure('public.ingest_magicbricks_lead(uuid,uuid,uuid,text,text,text,jsonb,jsonb)') is not null;

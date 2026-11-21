@@ -4,7 +4,7 @@ import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/magicbricks/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-18T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: MagicbricksOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [] } };
+const WAITING: MagicbricksOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getMagicbricksOverview: vi.fn(),
@@ -72,15 +72,35 @@ describe("MagicbricksIntegrationCard", () => {
   it("asks before Regenerate, then replaces the URL and says so", async () => {
     render(<MagicbricksIntegrationCard />);
     fireEvent.click(await screen.findByRole("button", { name: "Regenerate URL" }));
-    expect(screen.getByText("The old URL stops working at once. Send the new URL to your MagicBricks account manager.")).toBeInTheDocument();
+    expect(screen.getByText("Your old URL keeps working for 7 days. Send the new URL to your MagicBricks account manager before then, or MagicBricks will stop delivering leads.")).toBeInTheDocument();
+    expect(screen.queryByText(/stops working at once/)).not.toBeInTheDocument();
     expect(api.createMagicbricksIntegration).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Regenerate URL" }));
     await waitFor(() => expect(api.createMagicbricksIntegration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("New URL created. Send it to your MagicBricks account manager.")).toBeInTheDocument();
   });
 
+  it("after a regenerate, says until when the old URL works", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: null }, failedRequests: [] } });
+    render(<MagicbricksIntegrationCard />);
+    expect(await screen.findByText(/^Your old URL works until /)).toBeInTheDocument();
+    expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
+  });
+
+  it("warns when leads still arrive on the old URL", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" }, failedRequests: [] } });
+    render(<MagicbricksIntegrationCard />);
+    expect(await screen.findByText(/^Leads are still arriving on your old URL\. It stops on .+\. Send the new URL to your MagicBricks account manager\.$/)).toBeInTheDocument();
+  });
+
+  it("shows no old-URL notice when there is no old URL", async () => {
+    render(<MagicbricksIntegrationCard />);
+    await screen.findByLabelText("Webhook URL");
+    expect(screen.queryByText(/old URL/)).not.toBeInTheDocument();
+  });
+
   it("shows Connected and the last lead time once a lead arrived", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), failedRequests: [] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), previousUrl: null, failedRequests: [] } });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.getByText("Last lead received 5 minutes ago")).toBeInTheDocument();
@@ -93,7 +113,7 @@ describe("MagicbricksIntegrationCard", () => {
   });
 
   it("shows each failed request's time and short reason", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [FAILED] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [FAILED] } });
     render(<MagicbricksIntegrationCard />);
     const heading = await screen.findByRole("heading", { name: "Failed requests" });
     const section = heading.closest("div")?.parentElement?.parentElement as HTMLElement;
@@ -102,7 +122,7 @@ describe("MagicbricksIntegrationCard", () => {
   });
 
   it("offers Regenerate when the stored URL cannot be shown", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: null, lastLeadAt: null, failedRequests: [] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: null, lastLeadAt: null, previousUrl: null, failedRequests: [] } });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to your MagicBricks account manager.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();

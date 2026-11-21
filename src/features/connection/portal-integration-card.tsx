@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import { formatDateTime } from "@/lib/date-utils";
-import { PORTALS, type PortalId, type PortalIntegrationOverview } from "@/lib/portal-leads/portals";
+import { PORTAL_PREVIOUS_URL_DAYS, PORTALS, type PortalId, type PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 import { createPortalIntegration, getPortalIntegrationOverview } from "@/services/crm-api-client";
 
 type Busy = "create" | "replace" | "refresh" | null;
@@ -90,9 +90,12 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
                 <button className="google-copy-row__action" type="button" aria-pressed={showUrl} onClick={() => setShowUrl((current) => !current)}>{showUrl ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}{showUrl ? "Hide" : "Show"}</button>
                 <button className={`google-copy-row__action${copied ? " google-copy-row__action--done" : ""}`} type="button" onClick={() => void copyUrl(webhookUrl)}>{copied ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}{copied ? "Copied" : "Copy URL"}</button></div></div>
           </> : <Notice tone="warning" title={`This URL can't be shown. Regenerate it, then send the new URL to ${label}.`} />}
+          {integration.previousUrl ? <Notice tone={integration.previousUrl.lastLeadAt ? "warning" : "info"} title={integration.previousUrl.lastLeadAt
+            ? `Leads are still arriving on your old URL. It stops on ${formatDateTime(integration.previousUrl.validUntil)}. Send the new URL to ${label}.`
+            : `Your old URL works until ${formatDateTime(integration.previousUrl.validUntil)}.`} /> : null}
           <div className="button-group">
             {confirmReplace ? <>
-              <span className="field-help">The old URL stops working at once. Send the new URL to {label}.</span>
+              <span className="field-help">Your old URL keeps working for {PORTAL_PREVIOUS_URL_DAYS} days. Send the new URL to {label} before then, or {label} will stop delivering leads.</span>
               <button className="button button--danger" type="button" disabled={busy === "replace"} onClick={() => void run("replace", async () => { await createPortalIntegration(portal); await reload(); setConfirmReplace(false); setShowUrl(false); setMessage({ tone: "success", text: `New URL created. Send it to ${label}.` }); })}>{busy === "replace" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Regenerate URL</button>
               <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(false)}><X aria-hidden="true" size={18} />Cancel</button>
             </> : <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Regenerate URL</button>}

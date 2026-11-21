@@ -42,7 +42,15 @@ export function portalFailureReason(errorMessage: string | null): PortalFailureR
   return (errorMessage && FAILURE_REASONS.get(errorMessage)) || "Not saved";
 }
 
-type IntegrationRow = { encrypted_url_token: string; is_active: boolean; last_received_at: string | null; url_rotated_at: string | null; id: string };
+type IntegrationRow = {
+  id: string;
+  encrypted_url_token: string;
+  is_active: boolean;
+  last_received_at: string | null;
+  url_rotated_at: string | null;
+  previous_valid_until: string | null;
+  previous_last_received_at: string | null;
+};
 type FailedRequestRow = { id: string; created_at: string; error_message: string | null };
 
 async function resolveOwner(portal: PortalId): Promise<{ tenantId: string }> {
@@ -74,7 +82,7 @@ export class PortalIntegrationService {
     const canManage = access.membershipRole === "owner";
     const db = getSupabaseAdminClient();
     const { data, error } = await db.from("portal_integrations")
-      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at")
+      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at")
       .eq("tenant_id", access.tenantId)
       .eq("portal_name", portal)
       .maybeSingle();
@@ -94,39 +102,35 @@ export class PortalIntegrationService {
       logs().eq("status", "received").lt("created_at", stuckBefore).order("created_at", { ascending: false }).limit(PORTAL_FAILED_REQUEST_LIMIT),
     ]);
     if (failed.error || stuck.error) throw new AppError("Portal details could not be loaded.", { status: 500, code: "PORTAL_OVERVIEW_FAILED" });
+    // Shown only while the old URL still works (the database refuses it after previous_valid_until).
+    const previousUrl = row.previous_valid_until && Date.parse(row.previous_valid_until) > Date.now()
+      ? { validUntil: row.previous_valid_until, lastLeadAt: row.previous_last_received_at }
+      : null;
     return {
       ...overview,
       integration: {
         url: readableUrl(origin, portal, row.encrypted_url_token),
+        // save_portal_url clears last_received_at on a regenerate; sinceRotation also covers URLs replaced before that.
         lastLeadAt: sinceRotation(row.last_received_at, row.url_rotated_at),
+        previousUrl,
         failedRequests: newestFailedRequests((stuck.data ?? []) as FailedRequestRow[], (failed.data ?? []) as FailedRequestRow[]).map(toFailedRequestView),
       },
     };
   }
 
   /**
-   * Creates this portal's webhook URL for the company, or replaces it. A new URL is made every time: after a replace the
-   * old URL is refused at once (404), so the portal must be given the new one.
+   * Creates this portal's webhook URL for the company, or replaces it. A new URL is made every time; after a replace the
+   * old URL keeps working for PORTAL_PREVIOUS_URL_DAYS days (save_portal_url), then it is refused (404).
    */
   public async createOrReplace(portal: PortalId, origin: string): Promise<{ url: string }> {
     const owner = await resolveOwner(portal);
-    const db = getSupabaseAdminClient();
     const token = randomBytes(32).toString("base64url");
-    const secret = { url_token_hash: hashPortalWebhookToken(token), encrypted_url_token: encryptToken(token), is_active: true };
-
-    const { data: existing, error: readError } = await db.from("portal_integrations").select("id")
-      .eq("tenant_id", owner.tenantId).eq("portal_name", portal).maybeSingle();
-    if (readError) throw saveFailed();
-    if (!existing) {
-      const { error } = await db.from("portal_integrations").insert({ tenant_id: owner.tenantId, portal_name: portal, ...secret });
-      if (!error) return { url: buildPortalWebhookUrl(origin, portal, token) };
-      // Another request created it at the same moment (one per portal per company): replace that one instead.
-      if (error.code !== "23505") throw saveFailed();
-    }
-    const { error } = await db.from("portal_integrations")
-      .update({ ...secret, url_rotated_at: new Date().toISOString() })
-      .eq("tenant_id", owner.tenantId)
-      .eq("portal_name", portal);
+    const { error } = await getSupabaseAdminClient().rpc("save_portal_url", {
+      p_tenant_id: owner.tenantId,
+      p_portal: portal,
+      p_token_hash: hashPortalWebhookToken(token),
+      p_encrypted_token: encryptToken(token),
+    });
     if (error) throw saveFailed();
     return { url: buildPortalWebhookUrl(origin, portal, token) };
   }

@@ -4,7 +4,7 @@ import type { PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/leads/99acres/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [] } };
+const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getPortalIntegrationOverview: vi.fn(),
@@ -72,7 +72,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("says Connected with the last lead time once a lead arrived", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), failedRequests: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), previousUrl: null, failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.getByText("Last lead received 5 minutes ago")).toBeInTheDocument();
@@ -81,7 +81,8 @@ describe("PortalIntegrationCard (99acres)", () => {
   it("asks before regenerating, then replaces the URL", async () => {
     render(<PortalIntegrationCard portal="99acres" />);
     fireEvent.click(await screen.findByRole("button", { name: "Regenerate URL" }));
-    expect(screen.getByText(/The old URL stops working at once/)).toBeInTheDocument();
+    expect(screen.getByText("Your old URL keeps working for 7 days. Send the new URL to 99acres before then, or 99acres will stop delivering leads.")).toBeInTheDocument();
+    expect(screen.queryByText(/stops working at once/)).not.toBeInTheDocument();
     expect(api.createPortalIntegration).not.toHaveBeenCalled();
     const buttons = screen.getAllByRole("button", { name: "Regenerate URL" });
     fireEvent.click(buttons[0]);
@@ -89,8 +90,27 @@ describe("PortalIntegrationCard (99acres)", () => {
     expect(await screen.findByText("New URL created. Send it to 99acres.")).toBeInTheDocument();
   });
 
+  it("after a regenerate, says until when the old URL works", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: null }, failedRequests: [] } });
+    render(<PortalIntegrationCard portal="99acres" />);
+    expect(await screen.findByText(/^Your old URL works until /)).toBeInTheDocument();
+    expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
+  });
+
+  it("warns when leads still arrive on the old URL", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" }, failedRequests: [] } });
+    render(<PortalIntegrationCard portal="99acres" />);
+    expect(await screen.findByText(/^Leads are still arriving on your old URL\. It stops on .+\. Send the new URL to 99acres\.$/)).toBeInTheDocument();
+  });
+
+  it("shows no old-URL notice when there is no old URL", async () => {
+    render(<PortalIntegrationCard portal="99acres" />);
+    await screen.findByLabelText("Webhook URL");
+    expect(screen.queryByText(/old URL/)).not.toBeInTheDocument();
+  });
+
   it("lists only the failed requests, each with its time and reason, and never the raw request", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, failedRequests: [FAILED, { id: "log-2", createdAt: "2026-11-16T08:00:00Z", reason: "Unsupported format" }] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [FAILED, { id: "log-2", createdAt: "2026-11-16T08:00:00Z", reason: "Unsupported format" }] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByRole("heading", { name: "Failed requests" })).toBeInTheDocument();
     expect(screen.getByText("These 99acres enquiries could not be saved. Contact AgentzPro support with the time shown.")).toBeInTheDocument();
@@ -123,7 +143,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("offers Regenerate when the URL cannot be shown, and still shows the real status", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, failedRequests: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, previousUrl: null, failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to 99acres.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();

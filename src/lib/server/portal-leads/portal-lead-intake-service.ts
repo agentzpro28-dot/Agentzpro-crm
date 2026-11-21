@@ -29,18 +29,18 @@ export interface IncomingPortalRequest {
   rawBody: string;
 }
 
-/** The integration row the intake needs, found by the URL token. */
+/** The active integration a URL token belongs to (find_portal_integration), and which of its URLs was used. */
 export interface PortalIntegrationRow {
   id: string;
   tenant_id: string;
   portal_name: PortalId;
-  is_active: boolean;
   field_mapping: unknown;
+  /** current = the URL shown in the card; previous = the URL before the last regenerate, still within its 7 days. */
+  url_version: "current" | "previous";
 }
 
 const UNKNOWN_WEBHOOK = "Unknown webhook.";
 const TEMPORARY_FAILURE = "Temporary failure, retry later.";
-const INTEGRATION_COLUMNS = "id,tenant_id,portal_name,is_active,field_mapping";
 const MAX_LOGGED_HEADERS = 50;
 const MAX_LOGGED_HEADER_LENGTH = 1000;
 // Platform headers added by our own hosting, not sent by the portal: they would only fill the log.
@@ -60,16 +60,14 @@ export class PortalLeadIntakeService {
     if (!portal || !PORTAL_WEBHOOK_TOKEN_PATTERN.test(urlToken)) return { status: 404, message: UNKNOWN_WEBHOOK };
     if (Buffer.byteLength(request.rawBody, "utf8") > MAX_PORTAL_WEBHOOK_BODY_BYTES) return { status: 413, message: "Payload too large." };
 
-    const { data, error } = await getSupabaseAdminClient().from("portal_integrations")
-      .select(INTEGRATION_COLUMNS)
-      .eq("url_token_hash", hashPortalWebhookToken(urlToken))
-      .eq("portal_name", portal)
-      .maybeSingle();
+    const tokenHash = hashPortalWebhookToken(urlToken);
+    // The current URL, or the old one while its 7 days last; the database's own clock decides.
+    const { data, error } = await getSupabaseAdminClient().rpc("find_portal_integration", { p_portal: portal, p_token_hash: tokenHash });
     if (error) return failure(portal, "INTEGRATION_LOOKUP_FAILED");
-    const integration = data as PortalIntegrationRow | null;
+    const integration = (Array.isArray(data) ? data[0] : null) as PortalIntegrationRow | undefined | null;
     // Not logged: a request that does not reach a company's integration must never fill anyone's log.
-    if (!integration || !integration.is_active) return { status: 404, message: UNKNOWN_WEBHOOK };
-    return this.ingestForIntegration(integration, request);
+    if (!integration) return { status: 404, message: UNKNOWN_WEBHOOK };
+    return this.ingestForIntegration(integration, tokenHash, request);
   }
 
   /**
@@ -77,7 +75,7 @@ export class PortalLeadIntakeService {
    * portal_webhook_logs BEFORE it is read, so an enquiry that cannot be read (unexpected field names, a new format) is
    * never lost: our support team keeps its copy, and the owner sees it under Failed requests in the card.
    */
-  public async ingestForIntegration(integration: PortalIntegrationRow, request: IncomingPortalRequest): Promise<PortalIntakeResult> {
+  public async ingestForIntegration(integration: PortalIntegrationRow, tokenHash: string, request: IncomingPortalRequest): Promise<PortalIntakeResult> {
     const portal = integration.portal_name;
     const tenantId = integration.tenant_id;
 
@@ -102,6 +100,7 @@ export class PortalLeadIntakeService {
         headers: loggableHeaders(request.headers),
         query_params: request.query,
         raw_body: request.rawBody,
+        url_version: integration.url_version,
         is_test: false,
       })
       .select("id")
@@ -123,11 +122,12 @@ export class PortalLeadIntakeService {
       throw mapError;
     }
 
-    const { data: outcome, error: ingestError } = await db.rpc("ingest_portal_lead", {
+    const { data: outcome, error: ingestError } = await db.rpc("ingest_portal_lead_on_url", {
       p_tenant_id: tenantId,
       p_integration_id: integration.id,
       p_log_id: logId,
       p_portal: portal,
+      p_token_hash: tokenHash,
       p_lead_ref: lead.leadRef,
       p_project_name: lead.projectName,
       p_enquiry_summary: lead.enquirySummary,
@@ -136,7 +136,7 @@ export class PortalLeadIntakeService {
       p_is_test: false,
     });
     if (ingestError) {
-      // The URL was replaced or stopped between the lookup and the save.
+      // The URL was replaced, stopped or reached the end of its 7 days between the lookup and the save.
       if (ingestError.code === "P0002") {
         await markFailed(logId, tenantId, "This webhook URL is no longer active.");
         return { status: 404, message: UNKNOWN_WEBHOOK };

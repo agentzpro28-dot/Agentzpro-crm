@@ -3,16 +3,13 @@ import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  rpc: vi.fn(), lookup: vi.fn(), insert: vi.fn(), insertResult: vi.fn(), update: vi.fn(), updateResult: vi.fn(), eq: vi.fn(), rate: vi.fn(),
+  rpc: vi.fn(), lookup: vi.fn(), insert: vi.fn(), insertResult: vi.fn(), update: vi.fn(), updateResult: vi.fn(), rate: vi.fn(),
 }));
 vi.mock("@/lib/server/supabase-admin", () => ({
   getSupabaseAdminClient: () => ({
-    rpc: mocks.rpc,
+    // find_portal_integration is the URL lookup; every other function is the lead save.
+    rpc: (fn: string, args: unknown) => fn === "find_portal_integration" ? mocks.lookup(args) : mocks.rpc(fn, args),
     from: (table: string) => {
-      if (table === "portal_integrations") {
-        const chain = { eq: (...args: unknown[]) => { mocks.eq(...args); return chain; }, maybeSingle: mocks.lookup };
-        return { select: () => chain };
-      }
       if (table === "portal_webhook_logs") {
         return {
           insert: (row: unknown) => { mocks.insert(row); return { select: () => ({ single: mocks.insertResult }) }; },
@@ -32,7 +29,8 @@ vi.mock("@/lib/server/custom-webhook/webhook-rate-limit", () => ({ checkCustomWe
 import { PortalLeadIntakeService, hashPortalWebhookToken, loggableHeaders, type IncomingPortalRequest } from "@/lib/server/portal-leads/portal-lead-intake-service";
 
 const TOKEN = "B".repeat(43);
-const INTEGRATION = { id: "integration-1", tenant_id: "tenant-a", portal_name: "99acres", is_active: true, field_mapping: {} };
+const INTEGRATION = { id: "integration-1", tenant_id: "tenant-a", portal_name: "99acres", field_mapping: {}, url_version: "current" };
+const TOKEN_HASH = createHash("sha256").update(TOKEN).digest("hex");
 const json = (body: Record<string, unknown>, headers: Record<string, string> = {}) => ({
   method: "POST" as const, headers: new Headers({ "content-type": "application/json", ...headers }), query: {}, rawBody: JSON.stringify(body),
 });
@@ -43,7 +41,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  mocks.lookup.mockResolvedValue({ data: INTEGRATION, error: null });
+  mocks.lookup.mockResolvedValue({ data: [INTEGRATION], error: null });
   mocks.rate.mockResolvedValue({ allowed: true });
   mocks.insertResult.mockResolvedValue({ data: { id: "log-1" }, error: null });
   mocks.updateResult.mockReturnValue({ error: null });
@@ -53,21 +51,26 @@ beforeEach(() => {
 describe("PortalLeadIntakeService.ingestFromWebhook", () => {
   it("finds the company by the SHA-256 of the URL token and the portal, logs the raw request, then saves the lead", async () => {
     await expect(ingest()).resolves.toEqual({ status: 200, message: "Lead received", duplicate: false, outcome: "stored", leadId: "lead-1" });
-    expect(mocks.eq).toHaveBeenCalledWith("url_token_hash", createHash("sha256").update(TOKEN).digest("hex"));
-    expect(mocks.eq).toHaveBeenCalledWith("portal_name", "99acres");
-    expect(mocks.eq).not.toHaveBeenCalledWith(expect.anything(), TOKEN);
+    expect(mocks.lookup).toHaveBeenCalledWith({ p_portal: "99acres", p_token_hash: TOKEN_HASH });
     expect(mocks.insert).toHaveBeenCalledWith({
       tenant_id: "tenant-a", integration_id: "integration-1", portal_name: "99acres", http_method: "POST",
-      headers: { "content-type": "application/json" }, query_params: {}, raw_body: JSON.stringify(ACRES), is_test: false,
+      headers: { "content-type": "application/json" }, query_params: {}, raw_body: JSON.stringify(ACRES), url_version: "current", is_test: false,
     });
-    expect(mocks.rpc).toHaveBeenCalledWith("ingest_portal_lead", {
-      p_tenant_id: "tenant-a", p_integration_id: "integration-1", p_log_id: "log-1", p_portal: "99acres", p_lead_ref: "ENQ-1",
+    expect(mocks.rpc).toHaveBeenCalledWith("ingest_portal_lead_on_url", {
+      p_tenant_id: "tenant-a", p_integration_id: "integration-1", p_log_id: "log-1", p_portal: "99acres", p_token_hash: TOKEN_HASH, p_lead_ref: "ENQ-1",
       p_project_name: "Green Valley", p_enquiry_summary: "New 99acres enquiry · Name: Ravi · Project: Green Valley · Query: 2 BHK",
       p_field_data: [{ name: "full_name", values: ["Ravi"] }, { name: "phone_number", values: ["9876543210"] }, { name: "project_name", values: ["Green Valley"] }, { name: "query", values: ["2 BHK"] }],
       p_raw_payload: ACRES, p_is_test: false,
     });
     // The log is written before the lead is read and saved.
     expect(mocks.insert.mock.invocationCallOrder[0]).toBeLessThan(mocks.rpc.mock.invocationCallOrder[0]);
+  });
+
+  it("saves a lead sent to the old URL within its 7 days, logged as coming on the old URL", async () => {
+    mocks.lookup.mockResolvedValue({ data: [{ ...INTEGRATION, url_version: "previous" }], error: null });
+    await expect(ingest()).resolves.toMatchObject({ status: 200, outcome: "stored" });
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ url_version: "previous" }));
+    expect(mocks.rpc).toHaveBeenCalledWith("ingest_portal_lead_on_url", expect.objectContaining({ p_token_hash: TOKEN_HASH }));
   });
 
   it("never lets the request pick the company", async () => {
@@ -82,13 +85,13 @@ describe("PortalLeadIntakeService.ingestFromWebhook", () => {
     await expect(ingest()).resolves.toMatchObject({ status: 200, duplicate: true, outcome: "duplicate" });
   });
 
-  it("answers 404 for an unknown portal, a malformed, unknown or stopped token, and logs nothing", async () => {
+  it("answers 404 for an unknown portal, a malformed token, or a token the database does not accept (unknown, stopped or an expired old URL), and logs nothing", async () => {
     await expect(ingest(json(ACRES), TOKEN, "magicbricks")).resolves.toMatchObject({ status: 404 });
     await expect(ingest(json(ACRES), "short")).resolves.toMatchObject({ status: 404 });
     expect(mocks.lookup).not.toHaveBeenCalled();
-    mocks.lookup.mockResolvedValueOnce({ data: null, error: null });
+    mocks.lookup.mockResolvedValueOnce({ data: [], error: null });
     await expect(ingest()).resolves.toEqual({ status: 404, message: "Unknown webhook." });
-    mocks.lookup.mockResolvedValueOnce({ data: { ...INTEGRATION, is_active: false }, error: null });
+    mocks.lookup.mockResolvedValueOnce({ data: null, error: null });
     await expect(ingest()).resolves.toMatchObject({ status: 404 });
     expect(mocks.insert).not.toHaveBeenCalled();
     expect(mocks.rpc).not.toHaveBeenCalled();

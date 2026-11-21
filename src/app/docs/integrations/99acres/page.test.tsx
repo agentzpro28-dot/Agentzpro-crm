@@ -11,3 +11,9 @@ it("describes the 3-step account-manager setup, as its own pipeline", () => {
   expect(screen.getByText(/your 99acres account manager or 99acres support/)).toBeInTheDocument();
   expect(screen.queryByText(/MagicBricks/)).not.toBeInTheDocument();
 });
+
+it("says the old URL keeps working for 7 days after a regenerate", () => {
+  render(<NinetyNineAcresDocsPage />);
+  expect(screen.getByText("Your old URL keeps working for 7 days. Send the new URL to 99acres before then, or 99acres will stop delivering leads.")).toBeInTheDocument();
+  expect(screen.queryByText(/stops working at once/)).not.toBeInTheDocument();
+});

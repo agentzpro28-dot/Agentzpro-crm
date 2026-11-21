@@ -29,12 +29,13 @@ export interface IncomingMagicbricksRequest {
   rawBody: string;
 }
 
-/** The integration row the intake needs, found by the URL token. */
+/** The active integration a URL token belongs to (find_magicbricks_integration), and which of its URLs was used. */
 export interface MagicbricksIntegrationRow {
   id: string;
   tenant_id: string;
-  is_active: boolean;
   field_mapping: unknown;
+  /** current = the URL shown in the card; previous = the URL before the last regenerate, still within its 7 days. */
+  url_version: "current" | "previous";
 }
 
 /**
@@ -49,7 +50,6 @@ export const MAGICBRICKS_LOG_MESSAGES = {
 
 const UNKNOWN_WEBHOOK = "Unknown webhook.";
 const TEMPORARY_FAILURE = "Temporary failure, retry later.";
-const INTEGRATION_COLUMNS = "id,tenant_id,is_active,field_mapping";
 const MAX_LOGGED_HEADERS = 50;
 const MAX_LOGGED_HEADER_LENGTH = 1000;
 // Headers added by our own hosting, not sent by MagicBricks: they would only fill the log.
@@ -68,15 +68,14 @@ export class MagicbricksLeadIntakeService {
     if (!MAGICBRICKS_WEBHOOK_TOKEN_PATTERN.test(urlToken)) return { status: 404, message: UNKNOWN_WEBHOOK };
     if (Buffer.byteLength(request.rawBody, "utf8") > MAX_MAGICBRICKS_WEBHOOK_BODY_BYTES) return { status: 413, message: "Payload too large." };
 
-    const { data, error } = await getSupabaseAdminClient().from("magicbricks_integrations")
-      .select(INTEGRATION_COLUMNS)
-      .eq("url_token_hash", hashMagicbricksWebhookToken(urlToken))
-      .maybeSingle();
+    const tokenHash = hashMagicbricksWebhookToken(urlToken);
+    // The current URL, or the old one while its 7 days last; the database's own clock decides.
+    const { data, error } = await getSupabaseAdminClient().rpc("find_magicbricks_integration", { p_token_hash: tokenHash });
     if (error) return failure("INTEGRATION_LOOKUP_FAILED");
-    const integration = data as MagicbricksIntegrationRow | null;
+    const integration = (Array.isArray(data) ? data[0] : null) as MagicbricksIntegrationRow | undefined | null;
     // Not logged: a request that does not reach a company's integration must never fill anyone's log.
-    if (!integration || !integration.is_active) return { status: 404, message: UNKNOWN_WEBHOOK };
-    return this.ingestForIntegration(integration, request);
+    if (!integration) return { status: 404, message: UNKNOWN_WEBHOOK };
+    return this.ingestForIntegration(integration, tokenHash, request);
   }
 
   /**
@@ -84,7 +83,7 @@ export class MagicbricksLeadIntakeService {
    * read, so an enquiry that cannot be read (unexpected field names, a new format) is never lost: our support team keeps
    * its copy, and the owner sees it under Failed requests in the card.
    */
-  public async ingestForIntegration(integration: MagicbricksIntegrationRow, request: IncomingMagicbricksRequest): Promise<MagicbricksIntakeResult> {
+  public async ingestForIntegration(integration: MagicbricksIntegrationRow, tokenHash: string, request: IncomingMagicbricksRequest): Promise<MagicbricksIntakeResult> {
     const tenantId = integration.tenant_id;
 
     const rate = await checkMagicbricksRate(integration.id);
@@ -108,6 +107,7 @@ export class MagicbricksLeadIntakeService {
         headers: loggableMagicbricksHeaders(request.headers),
         query_params: request.query,
         raw_body: request.rawBody,
+        url_version: integration.url_version,
       })
       .select("id")
       .single();
@@ -128,10 +128,11 @@ export class MagicbricksLeadIntakeService {
       throw mapError;
     }
 
-    const { data: outcome, error: ingestError } = await db.rpc("ingest_magicbricks_lead", {
+    const { data: outcome, error: ingestError } = await db.rpc("ingest_magicbricks_lead_on_url", {
       p_tenant_id: tenantId,
       p_integration_id: integration.id,
       p_log_id: logId,
+      p_token_hash: tokenHash,
       p_lead_ref: lead.leadRef,
       p_project_name: lead.projectName,
       p_enquiry_summary: lead.enquirySummary,
@@ -139,7 +140,7 @@ export class MagicbricksLeadIntakeService {
       p_raw_payload: lead.rawPayload,
     });
     if (ingestError) {
-      // The URL was replaced or stopped between the lookup and the save.
+      // The URL was replaced, stopped or reached the end of its 7 days between the lookup and the save.
       if (ingestError.code === "P0002") {
         await markFailed(logId, tenantId, MAGICBRICKS_LOG_MESSAGES.urlReplaced);
         return { status: 404, message: UNKNOWN_WEBHOOK };

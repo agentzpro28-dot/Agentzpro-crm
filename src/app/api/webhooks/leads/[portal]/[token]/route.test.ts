@@ -5,13 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), lookup: vi.fn(), insert: vi.fn(), rate: vi.fn() }));
 vi.mock("@/lib/server/supabase-admin", () => ({
   getSupabaseAdminClient: () => ({
-    rpc: mocks.rpc,
-    from: (table: string) => table === "portal_integrations"
-      ? { select: () => { const chain = { eq: () => chain, maybeSingle: mocks.lookup }; return chain; } }
-      : {
-        insert: (row: unknown) => { mocks.insert(row); return { select: () => ({ single: async () => ({ data: { id: "log-1" }, error: null }) }) }; },
-        update: () => { const chain = { eq: () => chain, then: (resolve: (value: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve) }; return chain; },
-      },
+    // find_portal_integration is the URL lookup; every other function is the lead save.
+    rpc: (fn: string, args: unknown) => fn === "find_portal_integration" ? mocks.lookup(args) : mocks.rpc(fn, args),
+    from: () => ({
+      insert: (row: unknown) => { mocks.insert(row); return { select: () => ({ single: async () => ({ data: { id: "log-1" }, error: null }) }) }; },
+      update: () => { const chain = { eq: () => chain, then: (resolve: (value: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve) }; return chain; },
+    }),
   }),
 }));
 vi.mock("@/lib/server/custom-webhook/webhook-rate-limit", () => ({ checkCustomWebhookRate: mocks.rate }));
@@ -27,7 +26,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  mocks.lookup.mockResolvedValue({ data: { id: "integration-1", tenant_id: "tenant-a", portal_name: "99acres", is_active: true, field_mapping: {} }, error: null });
+  mocks.lookup.mockResolvedValue({ data: [{ id: "integration-1", tenant_id: "tenant-a", portal_name: "99acres", field_mapping: {}, url_version: "current" }], error: null });
   mocks.rate.mockResolvedValue({ allowed: true });
   mocks.rpc.mockResolvedValue({ data: { outcome: "stored", lead_id: "lead-1" }, error: null });
 });
@@ -63,12 +62,22 @@ describe("/api/webhooks/leads/[portal]/[token]", () => {
     expect(await response.json()).toEqual({ success: true, message: "Lead received", duplicate: true });
   });
 
+  it("4b. a lead on the old URL (within its 7 days) is saved and logged as coming on the old URL", async () => {
+    mocks.lookup.mockResolvedValue({ data: [{ id: "integration-1", tenant_id: "tenant-a", portal_name: "99acres", field_mapping: {}, url_version: "previous" }], error: null });
+    const response = await POST(new Request(url(), { method: "POST", body: JSON.stringify({ name: "Old Url", mobile: "9876543210" }) }), params());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true, message: "Lead received" });
+    expect(mocks.lookup).toHaveBeenCalledWith({ p_portal: "99acres", p_token_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ url_version: "previous" }));
+    expect(mocks.rpc).toHaveBeenCalledWith("ingest_portal_lead_on_url", expect.objectContaining({ p_token_hash: mocks.lookup.mock.calls[0][0].p_token_hash }));
+  });
+
   it("5. an invalid token is refused with 404 before any database work", async () => {
     const response = await POST(new Request(url("", "not-a-token"), { method: "POST", body: JSON.stringify({ name: "x", mobile: "9876543210" }) }), params("not-a-token"));
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ success: false, message: "Unknown webhook." });
     expect(mocks.lookup).not.toHaveBeenCalled();
-    mocks.lookup.mockResolvedValueOnce({ data: null, error: null });
+    mocks.lookup.mockResolvedValueOnce({ data: [], error: null });
     expect((await GET(new Request(url("?mobile=9876543210")), params())).status).toBe(404);
     expect((await GET(new Request(url("?mobile=9876543210", TOKEN, "magicbricks")), params(TOKEN, "magicbricks"))).status).toBe(404);
     expect(mocks.insert).not.toHaveBeenCalled();

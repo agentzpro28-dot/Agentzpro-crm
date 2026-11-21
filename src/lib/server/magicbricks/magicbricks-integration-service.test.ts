@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), from: vi.fn() }));
+const mocks = vi.hoisted(() => ({ access: vi.fn(), from: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/server/auth/access", () => ({ requireCrmAccess: mocks.access }));
-vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from }) }));
+vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
 vi.mock("@/lib/server/token-crypto", () => ({ encryptToken: (value: string) => `enc:${value}`, decryptToken: (value: string) => { if (value === "unreadable") throw new Error("bad key"); return value.replace(/^enc:/, ""); } }));
 
 import { MAGICBRICKS_LOG_MESSAGES, hashMagicbricksWebhookToken } from "@/lib/server/magicbricks/magicbricks-lead-intake-service";
@@ -23,7 +23,10 @@ function chain(result: { data?: unknown; error: unknown }) {
   return Object.assign(query, { then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve) });
 }
 
-const row = (extra: Record<string, unknown> = {}) => ({ id: "mb-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null, ...extra });
+const row = (extra: Record<string, unknown> = {}) => ({
+  id: "mb-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null,
+  previous_valid_until: null, previous_last_received_at: null, ...extra,
+});
 
 function overviewTables(integration: unknown, failedResult: { data?: unknown; error: unknown } = { data: [], error: null }, stuckResult: { data?: unknown; error: unknown } = { data: [], error: null }) {
   const integrationRead = chain({ data: integration, error: null });
@@ -69,6 +72,7 @@ describe("MagicbricksIntegrationService.getOverview", () => {
       integration: {
         url: `${ORIGIN}/api/webhooks/magicbricks/${TOKEN}`,
         lastLeadAt: "2026-11-18T11:00:00Z",
+        previousUrl: null,
         failedRequests: [
           { id: "log-4", createdAt: "2026-11-18T11:30:00Z", reason: "Not saved" },
           { id: "log-2", createdAt: "2026-11-18T10:00:00Z", reason: "Mobile number or email not found" },
@@ -81,6 +85,19 @@ describe("MagicbricksIntegrationService.getOverview", () => {
     expect(failed.eq).toHaveBeenCalledWith("status", "failed");
     expect(stuck.eq).toHaveBeenCalledWith("status", "received");
     expect(stuck.lt).toHaveBeenCalledWith("created_at", "2026-11-18T11:50:00.000Z");
+  });
+
+  it("reads the old-URL columns, and shows the old URL only while it still works", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-21T06:00:00Z") });
+    mocks.access.mockResolvedValue(OWNER);
+    const { integrationRead } = overviewTables(row({ previous_valid_until: "2026-11-28T06:00:00Z", previous_last_received_at: "2026-11-21T05:00:00Z" }));
+    const overview = await new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true });
+    expect(integrationRead.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at");
+    expect(overview.integration?.previousUrl).toEqual({ validUntil: "2026-11-28T06:00:00Z", lastLeadAt: "2026-11-21T05:00:00Z" });
+
+    // Its 7 days are over: the database refuses it, so the card no longer mentions it.
+    overviewTables(row({ previous_valid_until: "2026-11-21T05:59:59Z", previous_last_received_at: "2026-11-21T05:00:00Z" }));
+    expect((await new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).integration?.previousUrl).toBeNull();
   });
 
   it("never gives an employee the URL or the failed requests", async () => {
@@ -115,42 +132,31 @@ describe("MagicbricksIntegrationService.createOrReplace", () => {
     mocks.access.mockResolvedValue(EMPLOYEE);
     await expect(new MagicbricksIntegrationService().createOrReplace(ORIGIN)).rejects.toMatchObject({ status: 403, code: "MAGICBRICKS_OWNER_REQUIRED" });
     expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
-  it("creates the company's first URL, storing only the token's hash and an encrypted copy", async () => {
+  it("creates or replaces the URL in one database call, storing only the token's hash and an encrypted copy", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const read = chain({ data: null, error: null });
-    const insert = chain({ error: null });
-    const calls = [read, insert];
-    mocks.from.mockImplementation(() => calls.shift());
+    mocks.rpc.mockResolvedValue({ data: { replaced: false, previous_valid_until: null }, error: null });
     const { url } = await new MagicbricksIntegrationService().createOrReplace(ORIGIN);
     const token = url.split("/").pop() as string;
     expect(url).toMatch(/^https:\/\/crm\.example\.com\/api\/webhooks\/magicbricks\/[A-Za-z0-9_-]{43}$/);
-    expect(insert.insert).toHaveBeenCalledWith({ tenant_id: "tenant-a", url_token_hash: hashMagicbricksWebhookToken(token), encrypted_url_token: `enc:${token}`, is_active: true });
+    expect(mocks.rpc).toHaveBeenCalledWith("save_magicbricks_url", { p_tenant_id: "tenant-a", p_token_hash: hashMagicbricksWebhookToken(token), p_encrypted_token: `enc:${token}` });
+    expect(mocks.from).not.toHaveBeenCalled();
   });
 
-  it("replaces an existing URL in place and records when", async () => {
+  it("makes a new URL on every call (a regenerate: the old URL keeps working for 7 days in the database)", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const read = chain({ data: { id: "mb-1" }, error: null });
-    const update = chain({ error: null });
-    const calls = [read, update];
-    mocks.from.mockImplementation(() => calls.shift());
-    await new MagicbricksIntegrationService().createOrReplace(ORIGIN);
-    expect(update.update).toHaveBeenCalledWith(expect.objectContaining({ is_active: true, url_rotated_at: expect.any(String) }));
-    expect(update.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
-  });
-
-  it("replaces instead when another request created the URL at the same moment", async () => {
-    mocks.access.mockResolvedValue(OWNER);
-    const calls = [chain({ data: null, error: null }), chain({ error: { code: "23505" } }), chain({ error: null })];
-    mocks.from.mockImplementation(() => calls.shift());
-    await expect(new MagicbricksIntegrationService().createOrReplace(ORIGIN)).resolves.toMatchObject({ url: expect.stringContaining("/api/webhooks/magicbricks/") });
+    mocks.rpc.mockResolvedValue({ data: { replaced: true, previous_valid_until: "2026-11-28T06:00:00Z" }, error: null });
+    const service = new MagicbricksIntegrationService();
+    const first = await service.createOrReplace(ORIGIN);
+    const second = await service.createOrReplace(ORIGIN);
+    expect(first.url).not.toBe(second.url);
   });
 
   it("fails clearly when the save fails", async () => {
     mocks.access.mockResolvedValue(OWNER);
-    const calls = [chain({ data: null, error: null }), chain({ error: { code: "XX000" } })];
-    mocks.from.mockImplementation(() => calls.shift());
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000" } });
     await expect(new MagicbricksIntegrationService().createOrReplace(ORIGIN)).rejects.toMatchObject({ status: 500, code: "MAGICBRICKS_SAVE_FAILED" });
   });
 });

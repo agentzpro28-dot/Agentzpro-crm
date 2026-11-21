@@ -42,7 +42,15 @@ export function magicbricksFailureReason(errorMessage: string | null): Magicbric
   return (errorMessage && FAILURE_REASONS.get(errorMessage)) || "Not saved";
 }
 
-type IntegrationRow = { id: string; encrypted_url_token: string; is_active: boolean; last_received_at: string | null; url_rotated_at: string | null };
+type IntegrationRow = {
+  id: string;
+  encrypted_url_token: string;
+  is_active: boolean;
+  last_received_at: string | null;
+  url_rotated_at: string | null;
+  previous_valid_until: string | null;
+  previous_last_received_at: string | null;
+};
 type FailedRequestRow = { id: string; created_at: string; error_message: string | null };
 
 export class MagicbricksIntegrationService {
@@ -56,7 +64,7 @@ export class MagicbricksIntegrationService {
     const canManage = access.membershipRole === "owner";
     const db = getSupabaseAdminClient();
     const { data, error } = await db.from("magicbricks_integrations")
-      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at")
+      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at")
       .eq("tenant_id", access.tenantId)
       .maybeSingle();
     if (error) throw new AppError("MagicBricks details could not be loaded.", { status: 500, code: "MAGICBRICKS_OVERVIEW_FAILED" });
@@ -75,40 +83,38 @@ export class MagicbricksIntegrationService {
       logs().eq("status", "received").lt("created_at", stuckBefore).order("created_at", { ascending: false }).limit(MAGICBRICKS_FAILED_REQUEST_LIMIT),
     ]);
     if (failed.error || stuck.error) throw new AppError("MagicBricks details could not be loaded.", { status: 500, code: "MAGICBRICKS_OVERVIEW_FAILED" });
+    // Shown only while the old URL still works (the database refuses it after previous_valid_until).
+    const previousUrl = row.previous_valid_until && Date.parse(row.previous_valid_until) > Date.now()
+      ? { validUntil: row.previous_valid_until, lastLeadAt: row.previous_last_received_at }
+      : null;
     return {
       ...overview,
       integration: {
         url: readableUrl(origin, row.encrypted_url_token),
+        // save_magicbricks_url clears last_received_at on a regenerate; sinceRotation also covers URLs replaced before that.
         lastLeadAt: sinceRotation(row.last_received_at, row.url_rotated_at),
+        previousUrl,
         failedRequests: newestFailedRequests((stuck.data ?? []) as FailedRequestRow[], (failed.data ?? []) as FailedRequestRow[]).map(toFailedRequestView),
       },
     };
   }
 
   /**
-   * Creates the company's MagicBricks webhook URL, or replaces it (owner only). A new URL is made every time: after a
-   * replace the old URL is refused at once (404), so MagicBricks must be given the new one.
+   * Creates the company's MagicBricks webhook URL, or replaces it (owner only). A new URL is made every time; after a
+   * replace the old URL keeps working for MAGICBRICKS_PREVIOUS_URL_DAYS days (save_magicbricks_url), then it is refused
+   * (404).
    */
   public async createOrReplace(origin: string): Promise<{ url: string }> {
     const access = await requireCrmAccess();
     if (access.membershipRole !== "owner") {
       throw new AppError(`Only the company owner can manage ${MAGICBRICKS_LABEL}.`, { status: 403, code: "MAGICBRICKS_OWNER_REQUIRED" });
     }
-    const db = getSupabaseAdminClient();
     const token = randomBytes(32).toString("base64url");
-    const secret = { url_token_hash: hashMagicbricksWebhookToken(token), encrypted_url_token: encryptToken(token), is_active: true };
-
-    const { data: existing, error: readError } = await db.from("magicbricks_integrations").select("id").eq("tenant_id", access.tenantId).maybeSingle();
-    if (readError) throw saveFailed();
-    if (!existing) {
-      const { error } = await db.from("magicbricks_integrations").insert({ tenant_id: access.tenantId, ...secret });
-      if (!error) return { url: buildMagicbricksWebhookUrl(origin, token) };
-      // Another request created it at the same moment (one per company): replace that one instead.
-      if (error.code !== "23505") throw saveFailed();
-    }
-    const { error } = await db.from("magicbricks_integrations")
-      .update({ ...secret, url_rotated_at: new Date().toISOString() })
-      .eq("tenant_id", access.tenantId);
+    const { error } = await getSupabaseAdminClient().rpc("save_magicbricks_url", {
+      p_tenant_id: access.tenantId,
+      p_token_hash: hashMagicbricksWebhookToken(token),
+      p_encrypted_token: encryptToken(token),
+    });
     if (error) throw saveFailed();
     return { url: buildMagicbricksWebhookUrl(origin, token) };
   }
