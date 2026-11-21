@@ -33,10 +33,10 @@ select 'anon/authenticated have no table access', not (has_table_privilege('anon
 union all
 select 'service_role cannot delete logs or integrations', not (has_table_privilege('service_role', 'public.portal_webhook_logs', 'delete') or has_table_privilege('service_role', 'public.portal_integrations', 'delete'))
 union all
-select 'ingest_portal_lead: service_role only, security definer, empty search_path',
+select 'ingest_portal_lead_on_url: service_role only, security definer, empty search_path',
   has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute')
   and p.prosecdef and p.proconfig = array['search_path=""']
-  from pg_proc p where p.oid = 'public.ingest_portal_lead(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb,boolean)'::regprocedure
+  from pg_proc p where p.oid = 'public.ingest_portal_lead_on_url(uuid,uuid,uuid,text,text,text,text,text,jsonb,jsonb,boolean)'::regprocedure
 union all
 select 'purge function private to postgres', not has_function_privilege('service_role', 'private.purge_portal_webhook_logs()', 'execute')
 union all
@@ -65,4 +65,4 @@ select '99acres new functions: service_role only, security definer, empty search
   from pg_proc p where p.oid in ('public.save_portal_url(uuid,text,text,text)'::regprocedure, 'public.find_portal_integration(text,text)'::regprocedure,
     'public.ingest_portal_lead_on_url(uuid,uuid,uuid,text,text,text,text,text,jsonb,jsonb,boolean)'::regprocedure)
 union all
-select '99acres old writer still present (live app until deploy)', to_regprocedure('public.ingest_portal_lead(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb,boolean)') is not null;
+select '99acres old writer dropped (20261121140000)', to_regprocedure('public.ingest_portal_lead(uuid,uuid,uuid,text,text,text,text,jsonb,jsonb,boolean)') is null;

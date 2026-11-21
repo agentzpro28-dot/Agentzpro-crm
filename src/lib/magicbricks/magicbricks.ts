@@ -1,7 +1,7 @@
 /**
  * MagicBricks, the real-estate portal, pushes each enquiry to the company's own secret URL
  * (/api/webhooks/magicbricks/<token>). MagicBricks is a pipeline of its own: its tables (magicbricks_integrations,
- * magicbricks_webhook_logs), its save function (ingest_magicbricks_lead), its field reader, rate limit, services, API
+ * magicbricks_webhook_logs), its save function (ingest_magicbricks_lead_on_url), its field reader, rate limit, services, API
  * and card share no code with any other lead platform. Its leads are saved in lead_data with lead_source "magicbricks".
  */
 export const MAGICBRICKS_LABEL = "MagicBricks";

@@ -4,9 +4,9 @@
 --
 -- What it does: drops the three functions the migration created (save_magicbricks_url, find_magicbricks_integration,
 -- ingest_magicbricks_lead_on_url), the url_version log column and the previous_* columns with their checks and index.
--- After it the old URL of every MagicBricks integration is refused at once again, as before the migration.
--- ingest_magicbricks_lead was never changed by the migration, so nothing has to be restored. No other platform's object
--- is touched.
+-- After it the old URL of every MagicBricks integration is refused at once again, as before the migration. No other
+-- platform's object is touched. ingest_magicbricks_lead was dropped later (20261121150000): run
+-- 20261121150000_magicbricks_drop_old_lead_writer.rollback.sql FIRST, so the restored app has its writer.
 --
 -- ORDER: the app code from branch feature/portal-old-url-7-days calls the three dropped functions for MagicBricks. If
 -- that code is live, revert/redeploy the app WITHOUT it first, then run this file. Running this while that code is
