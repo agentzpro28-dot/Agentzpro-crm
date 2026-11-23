@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { AdAssignmentSection } from "@/components/ad-assignment-section";
 import { BillingPageClient } from "@/features/billing/billing-page-client";
+import { formatDisplayDate } from "@/lib/date-utils";
 import type { BillingOverview } from "@/lib/server/billing-service";
 import { BillingOwnerOnlyError, getBillingOverview, getInvoices, type BillingInvoice } from "@/services/billing-api-client";
 import {
@@ -1302,9 +1303,9 @@ function InvoicesSection() {
             {state.invoices.map((invoice, index) => (
               <div className="mvp-invoices__row" key={invoice.paymentId}>
                 <span className="mvp-members__index" aria-hidden="true">{index + 1}</span>
-                <span>{formatDate(invoice.paidAt)}</span>
+                <span>{formatDisplayDate(invoice.paidAt)}</span>
                 <span className="mvp-invoices__period">
-                  {formatDate(invoice.periodStart)} – {formatDate(invoice.periodEnd)}
+                  {formatDisplayDate(invoice.periodStart)} – {formatDisplayDate(invoice.periodEnd)}
                 </span>
                 <span className="mvp-invoices__amount">
                   <strong>{formatRupees(invoice.amountPaise)}</strong>
