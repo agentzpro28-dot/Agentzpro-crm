@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 type PanelPosition = { left: number; width: number; top: number | "auto"; bottom: number | "auto" };
@@ -17,9 +17,11 @@ const panelHeight = (count: number) => Math.min(260, count * 38 + (count - 1) * 
  * <body> and pinned with position: fixed beside the trigger (flipping upward near the screen bottom).
  * Choosing an option only calls onChange; the caller keeps the confirm popup, the same-value no-op
  * and the save exactly as before. An optional `tone` colours the closed box only (the open list stays plain).
+ * An optional `prefix` is shown inside the closed box before the value (the leads table puts a lead's second status
+ * there); with it the box grows past `width` instead of cutting the text.
  */
-export function RowDropdown<T extends string>({ ariaLabel, value, options, open, onOpenChange, onChange, width = 180, tone }: {
-  ariaLabel: string; value: T; options: readonly T[]; open: boolean; onOpenChange: (open: boolean) => void; onChange: (next: T) => void; width?: number; tone?: string;
+export function RowDropdown<T extends string>({ ariaLabel, value, options, open, onOpenChange, onChange, width = 180, tone, prefix }: {
+  ariaLabel: string; value: T; options: readonly T[]; open: boolean; onOpenChange: (open: boolean) => void; onChange: (next: T) => void; width?: number; tone?: string; prefix?: ReactNode;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -60,7 +62,8 @@ export function RowDropdown<T extends string>({ ariaLabel, value, options, open,
   }, [open, onOpenChange]);
 
   return <>
-    <button ref={triggerRef} type="button" className="mvp-row-dropdown" style={{ width }} data-tone={tone} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} onClick={() => onOpenChange(!open)}>
+    <button ref={triggerRef} type="button" className="mvp-row-dropdown" style={prefix ? { minWidth: width } : { width }} data-tone={tone} aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} onClick={() => onOpenChange(!open)}>
+      {prefix}
       <span className="mvp-row-dropdown__value">{value}</span>
       <ChevronDown size={14} className={`mvp-field-chevron${open ? " mvp-field-chevron--open" : ""}`} />
     </button>

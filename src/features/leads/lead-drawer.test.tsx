@@ -1208,17 +1208,26 @@ describe("second status", () => {
   const statusCell = (name = "Kumar") => screen.getAllByRole("button", { name: `Change status for ${name}` })[0].closest("td")!;
   const secondPicker = (drawer: HTMLElement) => within(drawer).getByRole("button", { name: "Change second status for Kumar" });
 
-  it("shows the second status after the main one in the Status column, and only once when both are the same", async () => {
+  it("shows the second status first inside the Status box (white tag in its colour), then the main status; only once when both are the same", async () => {
     stubApi({ leads: [
       lead(LEAD_1, "Kumar", { status: "Site visit done", secondStatus: "Disqualified" }),
       lead(LEAD_2, "Ravi", { status: "Sale", secondStatus: "Sale" }),
       lead(LEAD_3, "Asha", { status: "Working", secondStatus: null }),
     ], pages: {}, openTask: null });
     await renderPage();
-    expect(statusCell()).toHaveTextContent("Site visit done, Disqualified");
-    expect(within(statusCell()).getByText(", Disqualified")).toHaveAttribute("data-tone", "red");
-    expect(statusCell("Ravi").querySelector(".mvp-second-status")).toBeNull();
-    expect(statusCell("Asha").querySelector(".mvp-second-status")).toBeNull();
+    const box = screen.getAllByRole("button", { name: "Change status for Kumar" })[0];
+    expect(box).toHaveTextContent("Disqualified,Site visit done");
+    expect(box).toHaveAttribute("data-tone", "green");
+    const tag = within(box).getByText("Disqualified");
+    expect(tag).toHaveClass("mvp-second-status-tag");
+    expect(tag).toHaveAttribute("data-tone", "red");
+    // The tag comes before the main status inside the box.
+    expect(tag.compareDocumentPosition(within(box).getByText("Site visit done")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // With a second status the box may grow; without one it keeps its fixed width.
+    expect(box.style.minWidth).toBe("200px");
+    expect(screen.getAllByRole("button", { name: "Change status for Asha" })[0].style.width).toBe("200px");
+    expect(statusCell("Ravi").querySelector(".mvp-second-status-tag")).toBeNull();
+    expect(statusCell("Asha").querySelector(".mvp-second-status-tag")).toBeNull();
   });
 
   it("lists None plus every status except the main one, and saves the pick at once without the timeline or the main status", async () => {
@@ -1235,7 +1244,7 @@ describe("second status", () => {
     expect(options).not.toContain("Site visit done");
     fireEvent.click(screen.getByRole("option", { name: "Disqualified" }));
     await waitFor(() => expect(patches(calls)).toEqual([{ secondStatus: "Disqualified" }]));
-    await waitFor(() => expect(statusCell()).toHaveTextContent("Site visit done, Disqualified"));
+    await waitFor(() => expect(statusCell()).toHaveTextContent("Disqualified,Site visit done"));
     expect(secondPicker(drawer)).toHaveTextContent("Disqualified");
     // Saving it is not a step of the 1-2-3 flow and adds nothing to the timeline: no reload of it is asked for.
     expect(activityCalls(calls).length).toBe(timelineReads);
@@ -1250,7 +1259,7 @@ describe("second status", () => {
     fireEvent.click(secondPicker(drawer));
     fireEvent.click(screen.getByRole("option", { name: "None" }));
     await waitFor(() => expect(patches(calls)).toEqual([{ secondStatus: null }]));
-    await waitFor(() => expect(statusCell().querySelector(".mvp-second-status")).toBeNull());
+    await waitFor(() => expect(statusCell().querySelector(".mvp-second-status-tag")).toBeNull());
     expect(secondPicker(drawer)).toHaveTextContent("None");
   });
 
@@ -1262,7 +1271,7 @@ describe("second status", () => {
     fireEvent.click(screen.getByRole("option", { name: "Sale" }));
     expect(await within(drawer).findByRole("alert")).toHaveTextContent("The lead could not be updated.");
     expect(secondPicker(drawer)).toHaveTextContent("None");
-    expect(statusCell().querySelector(".mvp-second-status")).toBeNull();
+    expect(statusCell().querySelector(".mvp-second-status-tag")).toBeNull();
   });
 
   it("leaves the main status flow alone: a main status pick is still only pending until a task or note", async () => {

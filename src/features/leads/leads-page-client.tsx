@@ -18,6 +18,15 @@ const LOADING_SOURCES: readonly LeadSource[] = ["telecaller"];
 type LeadLabelSource = "default" | "ai" | "telecaller";
 type Lead = { id: string; leadgenId: string; leadName: string | null; phone: string | null; email?: string | null; facebookPage: string; adName: string; leadDate: string; status: LeadStatus; secondStatus?: LeadStatus | null; label: LeadLabel; labelSource: LeadLabelSource; assignedUserId?: string | null; assigneeName?: string | null; hasOpenTask?: boolean; openTaskTitle?: string | null; source?: LeadSource };
 
+/**
+ * A lead's second status, shown first inside its Status box: a small white tag in the second status's own colour, then
+ * a comma before the main status. The table passes it only when the lead has one that differs from the main status
+ * (the same status is shown once), so a box without it keeps its fixed width.
+ */
+function SecondStatusTag({ secondStatus }: { secondStatus: LeadStatus }) {
+  return <><span className="mvp-second-status-tag" data-tone={statusHighlight(secondStatus)} title={`Second status: ${secondStatus}`}>{secondStatus}</span><span className="mvp-second-status-comma" aria-hidden="true">,</span></>;
+}
+
 /** Who owns the lead: initial + name, or a quiet "Unassigned". Changed from the lead's detail drawer. */
 function AssigneeCell({ name }: { name: string | null }) {
   if (!name) return <span className="mvp-assignee mvp-assignee--none">Unassigned</span>;
@@ -222,8 +231,7 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
       </span></td><td>{new globalThis.Date(lead.leadDate).toLocaleDateString("en-IN", { timeZone: timezone })}</td><td>
         <RowDropdown ariaLabel={`Change status for ${lead.leadName ?? "Unnamed Lead"}`} value={lead.status} options={LEAD_STATUSES} width={200} tone={statusHighlight(lead.status)}
           open={openRowDropdown === `${lead.id}:status`} onOpenChange={(next) => setOpenRowDropdown(next ? `${lead.id}:status` : null)}
-          onChange={(next) => void updateStatus(lead.id, lead.status, next)} />
-        {lead.secondStatus && lead.secondStatus !== lead.status ? <span className="mvp-second-status" data-tone={statusHighlight(lead.secondStatus)} title={`Second status: ${lead.secondStatus}`}>, {lead.secondStatus}</span> : null}
+          onChange={(next) => void updateStatus(lead.id, lead.status, next)} prefix={lead.secondStatus && lead.secondStatus !== lead.status ? <SecondStatusTag secondStatus={lead.secondStatus} /> : undefined} />
       </td><td className="mvp-label-cell">
         <RowDropdown ariaLabel={`Change label for ${lead.leadName ?? "Unnamed Lead"}`} value={lead.label} options={LEAD_LABELS} width={140}
           open={openRowDropdown === `${lead.id}:label`} onOpenChange={(next) => setOpenRowDropdown(next ? `${lead.id}:label` : null)}
