@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getCustomRange, getTodayRange, getWeekRange, toReadableLabel } from "@/lib/date-utils";
+import { formatDisplayDate, getCustomRange, getTodayRange, getWeekRange, toReadableLabel } from "@/lib/date-utils";
 
 describe("date utilities", () => {
   it("creates an inclusive Asia/Kolkata today range", () => {
@@ -18,6 +18,12 @@ describe("date utilities", () => {
 
   it("rejects inverted custom ranges", () => {
     expect(() => getCustomRange("2026-09-05", "2026-09-01")).toThrow("Start date must be before the end date.");
+  });
+
+  it("formats display dates on the India calendar day", () => {
+    expect(formatDisplayDate("2026-12-22T18:30:00Z")).toBe("23 Dec 2026");
+    expect(formatDisplayDate("2026-11-22T18:29:59Z")).toBe("22 Nov 2026");
+    expect(formatDisplayDate("not a date")).toBe("");
   });
 
   it("converts dynamic Meta field keys into readable labels", () => {

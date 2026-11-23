@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PLAN_FEATURES } from "@/features/billing/plan-features";
+import { formatDisplayDate } from "@/lib/date-utils";
 import type { BillingOverview } from "@/lib/server/billing-service";
 import { getBillingStatus, startCheckout } from "@/services/billing-api-client";
 
@@ -145,7 +146,7 @@ function PlanFeatures({ heading }: Readonly<{ heading: string }>) {
 }
 
 function formatDate(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+  return iso ? formatDisplayDate(iso) : "—";
 }
 
 function loadCheckoutScript(): Promise<void> {

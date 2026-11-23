@@ -92,6 +92,15 @@ export function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+/** "23 Dec 2026" in India time, so server (UTC) and browser render the same day. */
+export function formatDisplayDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("en-IN", { timeZone: PRODUCT_TIME_ZONE, day: "numeric", month: "short", year: "numeric" }).format(date);
+}
+
 export function toReadableLabel(value: string): string {
   return value
     .replace(/[_-]+/g, " ")
