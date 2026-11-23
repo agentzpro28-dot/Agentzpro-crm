@@ -6,7 +6,6 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refres
 vi.mock("@/services/billing-api-client", () => ({
   startCheckout: vi.fn(),
   getBillingStatus: vi.fn(),
-  cancelSubscriptionAtPeriodEnd: vi.fn(),
 }));
 
 const { BillingPageClient } = await import("@/features/billing/billing-page-client");

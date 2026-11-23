@@ -204,39 +204,6 @@ async function retireAbandonedSubscription(billingSubscriptionId: string, razorp
   }
 }
 
-/**
- * Cancels at the end of the current billing cycle: Razorpay stops future charges and the company keeps
- * access until current_period_ends_at, after which evaluateCrmAccess() closes it on its own. Razorpay
- * refuses cycle-end cancellation in `created`/`authenticated`, so only an `active` subscription qualifies.
- */
-export async function cancelAtPeriodEnd(access: BillingAccess): Promise<{ periodEndsAt: string | null }> {
-  requireOwner(access);
-  const db = getSupabaseAdminClient();
-  const current = await loadCurrentSubscription(access.tenantId);
-
-  if (!current || current.razorpay_status !== "active") {
-    throw new AppError("There is no active subscription to cancel.", { status: 409, code: "NO_ACTIVE_SUBSCRIPTION" });
-  }
-  if (current.cancel_at_period_end) {
-    return { periodEndsAt: current.current_period_end };
-  }
-
-  const cancelled = await getRazorpayClient().cancelSubscription(current.razorpay_subscription_id, { atCycleEnd: true });
-
-  const { error } = await db
-    .from("billing_subscriptions")
-    .update({ razorpay_status: cancelled.status, cancel_at_period_end: true })
-    .eq("billing_subscription_id", current.billing_subscription_id)
-    .eq("tenant_id", access.tenantId);
-
-  if (error) {
-    // Razorpay has already cancelled; our copy is stale but access dates are unaffected.
-    logBillingEvent("CANCEL_RECORD_FAILED", { razorpaySubscriptionId: current.razorpay_subscription_id });
-  }
-
-  return { periodEndsAt: current.current_period_end };
-}
-
 interface CurrentSubscriptionRow {
   billing_subscription_id: string;
   razorpay_subscription_id: string;

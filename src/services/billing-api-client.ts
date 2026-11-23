@@ -64,15 +64,6 @@ export async function getBillingOverview(signal?: AbortSignal): Promise<BillingO
   return payload.overview;
 }
 
-export async function cancelSubscriptionAtPeriodEnd(): Promise<{ periodEndsAt: string | null }> {
-  const response = await fetch("/api/billing/cancel", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { accept: "application/json" },
-  });
-  return readJson<{ periodEndsAt: string | null }>(response, "The subscription could not be cancelled.");
-}
-
 export interface BillingInvoice {
   paymentId: string;
   amountPaise: number;

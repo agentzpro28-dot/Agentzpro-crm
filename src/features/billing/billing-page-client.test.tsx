@@ -8,11 +8,9 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh }) }));
 
 const startCheckout = vi.fn();
 const getBillingStatus = vi.fn();
-const cancelSubscriptionAtPeriodEnd = vi.fn();
 vi.mock("@/services/billing-api-client", () => ({
   startCheckout: (...args: unknown[]) => startCheckout(...args),
   getBillingStatus: (...args: unknown[]) => getBillingStatus(...args),
-  cancelSubscriptionAtPeriodEnd: (...args: unknown[]) => cancelSubscriptionAtPeriodEnd(...args),
 }));
 
 const { BillingPageClient } = await import("@/features/billing/billing-page-client");
@@ -231,7 +229,7 @@ describe("BillingPageClient: after payment", () => {
   });
 });
 
-describe("BillingPageClient: cancel auto-renewal wording", () => {
+describe("BillingPageClient: active plan has no cancel button", () => {
   const ACTIVE_PLAN = {
     planName: "Pro Monthly",
     billingPeriod: "monthly" as const,
@@ -246,7 +244,8 @@ describe("BillingPageClient: cancel auto-renewal wording", () => {
     window.localStorage.clear();
   });
 
-  it("names what the button does and states the no-refund rule before cancelling, without calling the API early", async () => {
+  // Autopay is stopped in the customer's UPI app or bank; the CRM offers no cancel action.
+  it("shows the renewing plan to the owner without any Cancel button", async () => {
     render(
       <BillingPageClient
         overview={overview({ subscriptionStatus: "active", currentPeriodEndsAt: "2026-11-15T18:30:00Z", currentPlan: ACTIVE_PLAN, canSubscribe: false })}
@@ -256,26 +255,8 @@ describe("BillingPageClient: cancel auto-renewal wording", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    // Not "Cancel subscription": that wording implied a refund to the user.
-    expect(screen.queryByRole("button", { name: "Cancel subscription" })).not.toBeInTheDocument();
-    const openButton = screen.getByRole("button", { name: "Cancel auto-renewal" });
-    expect(cancelSubscriptionAtPeriodEnd).not.toHaveBeenCalled();
-
-    fireEvent.click(openButton);
-
-    // The date also appears in the summary above ("Renews on"), so this checks the confirm paragraph only.
-    const confirmText = screen.getByText(/Your plan will not renew/);
-    expect(confirmText).toHaveTextContent("Your plan will not renew, and the company keeps access until");
-    expect(confirmText).toHaveTextContent("Nov 2026");
-    expect(confirmText).toHaveTextContent("Payments already made are not refunded.");
-    expect(cancelSubscriptionAtPeriodEnd).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Yes, cancel auto-renewal" }));
-    expect(cancelSubscriptionAtPeriodEnd).toHaveBeenCalledTimes(1);
-
-    // Let handleCancel's await settle before the test ends, so its state update is inside act().
-    await act(async () => {
-      await Promise.resolve();
-    });
+    expect(screen.getByText("Renews on")).toBeInTheDocument();
+    expect(screen.getByText("Your plan")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Cancel/ })).not.toBeInTheDocument();
   });
 });

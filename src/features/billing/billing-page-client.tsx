@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PLAN_FEATURES } from "@/features/billing/plan-features";
 import type { BillingOverview } from "@/lib/server/billing-service";
-import { cancelSubscriptionAtPeriodEnd, getBillingStatus, startCheckout } from "@/services/billing-api-client";
+import { getBillingStatus, startCheckout } from "@/services/billing-api-client";
 
 /**
  * Billing screen. The browser's only jobs: collect the plan + seats, open Razorpay Checkout for the
@@ -212,8 +212,6 @@ export function BillingPageClient({ overview, embedded = false, onChanged }: Rea
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   // Pay stays disabled until we have checked this browser for a payment that is still being activated.
   const [pendingChecked, setPendingChecked] = useState(false);
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
-  const [cancelState, setCancelState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const pollAbort = useRef<AbortController | null>(null);
 
   useEffect(() => () => pollAbort.current?.abort(), []);
@@ -339,18 +337,6 @@ export function BillingPageClient({ overview, embedded = false, onChanged }: Rea
       checkout.open();
     } catch (error) {
       setPhase({ kind: "error", message: error instanceof Error ? error.message : "Checkout could not be started." });
-    }
-  }
-
-  async function handleCancel(): Promise<void> {
-    setCancelState({ busy: true, error: null });
-    try {
-      await cancelSubscriptionAtPeriodEnd();
-      setConfirmingCancel(false);
-      setCancelState({ busy: false, error: null });
-      reload();
-    } catch (error) {
-      setCancelState({ busy: false, error: error instanceof Error ? error.message : "The subscription could not be cancelled." });
     }
   }
 
@@ -484,36 +470,6 @@ export function BillingPageClient({ overview, embedded = false, onChanged }: Rea
 
       {overview.isInternal ? <p className="auth-card__subtitle">No payment needed: this is an internal company account.</p> : null}
 
-      {overview.isOwner && currentPlan && currentPlan.razorpayStatus === "active" && !currentPlan.cancelAtPeriodEnd ? (
-        <div className="billing-cancel">
-          {confirmingCancel ? (
-            <>
-              <p className="auth-card__subtitle">
-                Your plan will not renew, and the company keeps access until {formatDate(overview.currentPeriodEndsAt)}. Payments
-                already made are not refunded.
-              </p>
-              <div className="billing-cancel__actions">
-                <button className="button button--secondary" type="button" onClick={() => setConfirmingCancel(false)} disabled={cancelState.busy}>
-                  Keep plan
-                </button>
-                <button className="button billing-cancel__confirm" type="button" onClick={() => void handleCancel()} disabled={cancelState.busy}>
-                  {cancelState.busy ? "Cancelling…" : "Yes, cancel auto-renewal"}
-                </button>
-              </div>
-            </>
-          ) : (
-            <button className="button button--secondary" type="button" onClick={() => setConfirmingCancel(true)}>
-              Cancel auto-renewal
-            </button>
-          )}
-          {cancelState.error ? (
-            <p className="auth-error" role="alert">
-              {cancelState.error}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
       {currentPlan ? (
         <section className="billing-offer billing-offer--current" aria-labelledby="billing-current-title">
           <div className="billing-offer__top">
@@ -619,7 +575,7 @@ export function BillingPageClient({ overview, embedded = false, onChanged }: Rea
               <button className="button billing-offer__cta" type="button" onClick={() => void handlePay()} disabled={!pendingChecked || phase.kind === "starting"}>
                 {phase.kind === "starting" ? "Opening checkout…" : `Get ${tierName(selectedPlan.planName)} plan · Pay ${formatRupees(totalPaise)}`}
               </button>
-              <p className="billing-offer__fineprint">Renews automatically. Cancel anytime from Billing.</p>
+              <p className="billing-offer__fineprint">Renews automatically. Cancel anytime in your UPI app or bank.</p>
             </div>
             <PlanFeatures heading={`Everything in ${tierName(selectedPlan.planName)}:`} />
           </section>

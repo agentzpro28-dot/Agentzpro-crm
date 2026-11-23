@@ -35,7 +35,7 @@ const FAQS = [
   },
   {
     question: "Can I cancel anytime?",
-    answer: "Yes. Cancel from Settings → Billing and your plan won't renew — you keep access until the end of the period you paid for.",
+    answer: "Yes. Stop the autopay in your UPI app or with your bank and your plan won't renew — you keep access until the end of the period you paid for.",
   },
 ];
 
