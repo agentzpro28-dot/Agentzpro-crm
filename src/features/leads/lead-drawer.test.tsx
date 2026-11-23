@@ -13,7 +13,7 @@ const LEAD_2 = "22222222-2222-4222-8222-222222222222";
 const LEAD_3 = "33333333-3333-4333-8333-333333333333";
 const TASK = "44444444-4444-4444-8444-444444444444";
 
-type Lead = { id: string; leadgenId: string; leadName: string; phone: string; facebookPage: string; adName: string; leadDate: string; status: string; label: string; labelSource: string; hasOpenTask: boolean; assignedUserId?: string | null; assigneeName?: string | null };
+type Lead = { id: string; leadgenId: string; leadName: string; phone: string; facebookPage: string; adName: string; leadDate: string; status: string; label: string; labelSource: string; hasOpenTask: boolean; assignedUserId?: string | null; assigneeName?: string | null; secondStatus?: string | null };
 const lead = (id: string, leadName: string, extra: Partial<Lead> = {}): Lead => ({ id, leadgenId: `lg-${id}`, leadName, phone: "9999999999", facebookPage: "Chennai Homes", adName: "karuvi", leadDate: "2026-10-01T05:00:00Z", status: "New Lead", label: "Warm", labelSource: "default", hasOpenTask: false, ...extra });
 
 type Activity = { id: string; type: string; summary: string; metadata: Record<string, unknown>; actorName: string; createdAt: string; backfilled: boolean; noteBody?: string };
@@ -68,6 +68,8 @@ interface ApiState {
   failAssign?: boolean;
   failStatus?: boolean;
   failNote?: boolean;
+  /** PATCH { secondStatus } answers 500. */
+  failSecondStatus?: boolean;
   /** The opened lead's Meta form answers (GET /api/leads/:id). */
   answers?: Array<{ name: string; values: string[] }>;
   /** POST /api/leads/telecaller answers 409 "already exists". */
@@ -116,6 +118,11 @@ function stubApi(state: ApiState) {
     }
     const patchLead = /^\/api\/leads\/([^/]+)$/.exec(url);
     if (patchLead && method === "GET") return json({ answers: state.answers ?? [] });
+    if (patchLead && method === "PATCH" && body && "secondStatus" in body) {
+      if (state.failSecondStatus) return json({ error: { code: "LEAD_UPDATE_FAILED", message: "The lead could not be updated." } }, 500);
+      const saved = state.leads.find((item) => item.id === patchLead[1]);
+      return json({ id: patchLead[1], status: saved?.status ?? "New Lead", secondStatus: body.secondStatus ?? null });
+    }
     if (patchLead && method === "PATCH" && state.failStatus) return json({ error: { code: "UPDATE_FAILED", message: "The status could not be updated." } }, 500);
     if (patchLead && method === "PATCH") return json({ id: patchLead[1], status: body?.status, label: "Warm", labelSource: "default" });
     throw new Error(`Unexpected request: ${method} ${url}`);
@@ -1194,5 +1201,80 @@ describe("call-in leads", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save lead" }));
     expect(await within(dialog).findByText("This phone number already exists as a lead.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Save lead" })).toBeEnabled();
+  });
+});
+
+describe("second status", () => {
+  const statusCell = (name = "Kumar") => screen.getAllByRole("button", { name: `Change status for ${name}` })[0].closest("td")!;
+  const secondPicker = (drawer: HTMLElement) => within(drawer).getByRole("button", { name: "Change second status for Kumar" });
+
+  it("shows the second status after the main one in the Status column, and only once when both are the same", async () => {
+    stubApi({ leads: [
+      lead(LEAD_1, "Kumar", { status: "Site visit done", secondStatus: "Disqualified" }),
+      lead(LEAD_2, "Ravi", { status: "Sale", secondStatus: "Sale" }),
+      lead(LEAD_3, "Asha", { status: "Working", secondStatus: null }),
+    ], pages: {}, openTask: null });
+    await renderPage();
+    expect(statusCell()).toHaveTextContent("Site visit done, Disqualified");
+    expect(within(statusCell()).getByText(", Disqualified")).toHaveAttribute("data-tone", "red");
+    expect(statusCell("Ravi").querySelector(".mvp-second-status")).toBeNull();
+    expect(statusCell("Asha").querySelector(".mvp-second-status")).toBeNull();
+  });
+
+  it("lists None plus every status except the main one, and saves the pick at once without the timeline or the main status", async () => {
+    const calls = stubApi({ leads: [lead(LEAD_1, "Kumar", { status: "Site visit done" })], pages: {}, openTask: null });
+    await renderPage();
+    const drawer = await openDrawer();
+    await waitFor(() => expect(activityCalls(calls).length).toBeGreaterThan(0));
+    const timelineReads = activityCalls(calls).length;
+    expect(secondPicker(drawer)).toHaveTextContent("None");
+    fireEvent.click(secondPicker(drawer));
+    const options = within(screen.getByRole("listbox", { name: "Change second status for Kumar" })).getAllByRole("option").map((option) => option.textContent);
+    expect(options[0]).toBe("None");
+    expect(options).toHaveLength(14);
+    expect(options).not.toContain("Site visit done");
+    fireEvent.click(screen.getByRole("option", { name: "Disqualified" }));
+    await waitFor(() => expect(patches(calls)).toEqual([{ secondStatus: "Disqualified" }]));
+    await waitFor(() => expect(statusCell()).toHaveTextContent("Site visit done, Disqualified"));
+    expect(secondPicker(drawer)).toHaveTextContent("Disqualified");
+    // Saving it is not a step of the 1-2-3 flow and adds nothing to the timeline: no reload of it is asked for.
+    expect(activityCalls(calls).length).toBe(timelineReads);
+    expect(within(drawer).getByText("Step 1")).toBeInTheDocument();
+  });
+
+  it("removes it with None", async () => {
+    const calls = stubApi({ leads: [lead(LEAD_1, "Kumar", { status: "Site visit done", secondStatus: "Disqualified" })], pages: {}, openTask: null });
+    await renderPage();
+    const drawer = await openDrawer();
+    expect(secondPicker(drawer)).toHaveTextContent("Disqualified");
+    fireEvent.click(secondPicker(drawer));
+    fireEvent.click(screen.getByRole("option", { name: "None" }));
+    await waitFor(() => expect(patches(calls)).toEqual([{ secondStatus: null }]));
+    await waitFor(() => expect(statusCell().querySelector(".mvp-second-status")).toBeNull());
+    expect(secondPicker(drawer)).toHaveTextContent("None");
+  });
+
+  it("keeps the old value and shows the error when the save fails", async () => {
+    stubApi({ leads: [lead(LEAD_1, "Kumar", { status: "Working" })], pages: {}, openTask: null, failSecondStatus: true });
+    await renderPage();
+    const drawer = await openDrawer();
+    fireEvent.click(secondPicker(drawer));
+    fireEvent.click(screen.getByRole("option", { name: "Sale" }));
+    expect(await within(drawer).findByRole("alert")).toHaveTextContent("The lead could not be updated.");
+    expect(secondPicker(drawer)).toHaveTextContent("None");
+    expect(statusCell().querySelector(".mvp-second-status")).toBeNull();
+  });
+
+  it("leaves the main status flow alone: a main status pick is still only pending until a task or note", async () => {
+    const calls = stubApi({ leads: [lead(LEAD_1, "Kumar", { status: "Working", secondStatus: "Sale" })], pages: {}, openTask: null });
+    await renderPage();
+    const drawer = await openDrawer();
+    fireEvent.click(within(drawer).getByRole("button", { name: "Change status for Kumar" }));
+    fireEvent.click(screen.getByRole("option", { name: "Final call" }));
+    expect(within(drawer).getByText("Not saved yet. Add a task or a note to save it.")).toBeInTheDocument();
+    expect(patches(calls)).toEqual([]);
+    // The picked main status leaves the second list, so the two can never be the same.
+    fireEvent.click(secondPicker(drawer));
+    expect(screen.queryByRole("option", { name: "Final call" })).not.toBeInTheDocument();
   });
 });

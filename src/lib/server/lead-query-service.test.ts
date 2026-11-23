@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, deleteLeads, queryLeads, resolveTenantTimezone, updateLeadTriage } from "@/lib/server/lead-query-service";
+import { countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, deleteLeads, queryLeads, resolveTenantTimezone, updateLeadSecondStatus, updateLeadTriage } from "@/lib/server/lead-query-service";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
@@ -374,6 +374,56 @@ describe("lead timeline hooks into the leads list", () => {
   });
 });
 
+describe("second status", () => {
+  it("reads second_status with every lead and returns it as secondStatus (null when unset)", async () => {
+    const leads = builder({ data: [
+      { id: "lead-1", leadgen_id: "lg-1", lead_created_time: "2026-11-20T05:00:00Z", status: "Site visit done", second_status: "Disqualified", label: "Warm", lead_source: "facebook" },
+      { id: "lead-2", leadgen_id: "lg-2", lead_created_time: "2026-11-20T04:00:00Z", status: "New Lead", second_status: null, label: "Warm", lead_source: "facebook" },
+    ], error: null, count: 2 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
+    expect(String(leads.select.mock.calls[0][0])).toContain(",status,second_status,label,");
+    expect(result.items.map((item) => [item.status, item.secondStatus])).toEqual([["Site visit done", "Disqualified"], ["New Lead", null]]);
+  });
+
+  it("matches the Status filter on the main or the second status, quoting values with spaces and an apostrophe", async () => {
+    const leads = builder({ data: [], error: null, count: 0 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    await queryLeads(context, { status: "Didn't pick the call" });
+    expect(leads.or).toHaveBeenCalledWith(`status.eq."Didn't pick the call",second_status.eq."Didn't pick the call"`);
+    expect(leads.eq).not.toHaveBeenCalledWith("status", expect.anything());
+  });
+
+  it("saves only second_status with a tenant-scoped update, never the status RPC (so no timeline entry)", async () => {
+    const leads = builder({ data: { id: "lead-1", status: "Site visit done", second_status: "Disqualified" }, error: null });
+    mocks.from.mockReturnValue(leads);
+    const result = await updateLeadSecondStatus(context, "lead-1", "Disqualified");
+    expect(mocks.from).toHaveBeenCalledWith("lead_data");
+    expect(leads.update).toHaveBeenCalledWith({ second_status: "Disqualified" });
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.eq).toHaveBeenCalledWith("id", "lead-1");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(result).toEqual({ id: "lead-1", status: "Site visit done", secondStatus: "Disqualified" });
+  });
+
+  it("removes the second status with null", async () => {
+    const leads = builder({ data: { id: "lead-1", status: "Working", second_status: null }, error: null });
+    mocks.from.mockReturnValue(leads);
+    const result = await updateLeadSecondStatus(context, "lead-1", null);
+    expect(leads.update).toHaveBeenCalledWith({ second_status: null });
+    expect(result.secondStatus).toBeNull();
+  });
+
+  it("maps a lead outside this tenant to 404 and a database error to 500", async () => {
+    mocks.from.mockReturnValueOnce(builder({ data: null, error: null }));
+    await expect(updateLeadSecondStatus(context, "lead-x", "Sale")).rejects.toMatchObject({ status: 404, code: "LEAD_NOT_FOUND" });
+    mocks.from.mockReturnValueOnce(builder({ data: null, error: { code: "23514" } }));
+    await expect(updateLeadSecondStatus(context, "lead-1", "Sale")).rejects.toMatchObject({ status: 500, code: "LEAD_UPDATE_FAILED" });
+  });
+});
+
 
 describe("lead assignment in the leads list", () => {
   const PRIYA = "33333333-3333-4333-8333-333333333333";
@@ -486,8 +536,10 @@ describe("countNewLeadsOnFirstPage (the new-leads bar)", () => {
     expect(page.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
     expect(page.eq).toHaveBeenCalledWith("lead_platform", "google_ads");
     expect(page.or).toHaveBeenCalledWith("google_campaign_id.eq.22334455,lead_ad_ref.eq.22334455");
-    expect(page.eq).toHaveBeenCalledWith("status", "New Lead");
-    expect(String(page.or.mock.calls[1][0])).toContain("lead_name.ilike.%Ravi%");
+    // The Status filter matches the main or the second status (its own or(), between the campaign and the search).
+    expect(page.or).toHaveBeenCalledWith('status.eq."New Lead",second_status.eq."New Lead"');
+    expect(page.eq).not.toHaveBeenCalledWith("status", "New Lead");
+    expect(String(page.or.mock.calls[2][0])).toContain("lead_name.ilike.%Ravi%");
     expect(page.order.mock.calls).toEqual([["lead_created_time", { ascending: false, nullsFirst: false }], ["id", { ascending: false }]]);
     expect(page.range).toHaveBeenCalledWith(0, 99);
   });

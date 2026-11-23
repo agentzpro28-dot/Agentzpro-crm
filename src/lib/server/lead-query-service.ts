@@ -35,6 +35,8 @@ export interface LeadRow {
   id: string; leadgenId: string; leadName: string | null; email: string | null; phone: string | null;
   adId: string | null; facebookPage: string; adName: string; leadDate: string; source: LeadSource;
   status: LeadStatus; label: LeadLabel; labelSource: LeadLabelSource;
+  /** An optional second status shown after the main one ("Site visit done, Disqualified"). Never on the timeline. */
+  secondStatus: LeadStatus | null;
   /** Who owns the lead; null = Unassigned. The name is resolved from the member's profile. */
   assignedUserId: string | null; assigneeName: string | null;
   /** Whether the lead has an open follow-up task. Only set for the paginated table, never for export. */
@@ -69,7 +71,7 @@ export async function queryLeads(context: TenantRequestContext, request: LeadSea
   const pageSize = Math.min(100, Math.max(1, request.pageSize ?? 25));
   // The table needs the total for its pages; a download page does not, so it skips the exact count.
   let query = getSupabaseAdminClient().from("lead_data")
-    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,portal_lead_ref,portal_project_name,magicbricks_lead_ref,magicbricks_project_name,housing_lead_ref,housing_project_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", exportAll ? undefined : { count: "exact" })
+    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,portal_lead_ref,portal_project_name,magicbricks_lead_ref,magicbricks_project_name,housing_lead_ref,housing_project_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,second_status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", exportAll ? undefined : { count: "exact" })
     .eq("tenant_id", context.tenantId);
   if (exportPage) query = query.lte("created_at", exportPage.savedBefore);
   if (request.leadId) query = query.eq("id", request.leadId);
@@ -152,7 +154,9 @@ function applyLeadFilters<Q extends LeadFilterBuilder<Q>>(query: Q, context: Ten
   // Scoped to Google Ads so a Facebook ad id can never match. "Unattributed" = a Google Ads lead with neither.
   if (request.campaignId === "unattributed") query = query.eq("lead_platform", "google_ads").is("google_campaign_id", null).is("lead_ad_ref", null);
   else if (request.campaignId) query = query.eq("lead_platform", "google_ads").or(`google_campaign_id.eq.${request.campaignId},lead_ad_ref.eq.${request.campaignId}`);
-  if (request.status) query = query.eq("status", request.status);
+  // A lead matches the Status filter by its main status or its second status. The value is one of LEAD_STATUSES (the
+  // routes check it), quoted so its spaces and apostrophe stay one value inside the or() filter.
+  if (request.status) query = query.or(`status.eq."${request.status}",second_status.eq."${request.status}"`);
   if (request.label) query = query.eq("label", request.label);
   if (request.assignee === "unassigned") query = query.is("assigned_user_id", null);
   else if (request.assignee === "me") query = query.eq("assigned_user_id", context.userId);
@@ -202,7 +206,7 @@ function toLeadRow(lead: Record<string, unknown>): LeadRow {
   const page = lead.facebook_pages as { facebook_page_name?: string } | null;
   const adId = typeof lead.ad_id === "string" ? lead.ad_id : null;
   const adName = asNullableString(lead.ad_name);
-  const row: LeadRow = { id: String(lead.id), leadgenId: String(lead.leadgen_id), leadName: asNullableString(lead.lead_name), email: asNullableString(lead.lead_email), phone: asNullableString(lead.lead_phone), adId, facebookPage: page?.facebook_page_name ?? "Unknown Page", adName: adName ?? (adId ? `Ad ${adId} - name pending` : "Unattributed"), leadDate: String(lead.lead_created_time), source: "facebook", status: lead.status as LeadStatus, label: lead.label as LeadLabel, labelSource: (lead.label_source as LeadLabelSource) ?? "default", assignedUserId: typeof lead.assigned_user_id === "string" ? lead.assigned_user_id : null, assigneeName: null };
+  const row: LeadRow = { id: String(lead.id), leadgenId: String(lead.leadgen_id), leadName: asNullableString(lead.lead_name), email: asNullableString(lead.lead_email), phone: asNullableString(lead.lead_phone), adId, facebookPage: page?.facebook_page_name ?? "Unknown Page", adName: adName ?? (adId ? `Ad ${adId} - name pending` : "Unattributed"), leadDate: String(lead.lead_created_time), source: "facebook", status: lead.status as LeadStatus, secondStatus: (lead.second_status as LeadStatus | null) ?? null, label: lead.label as LeadLabel, labelSource: (lead.label_source as LeadLabelSource) ?? "default", assignedUserId: typeof lead.assigned_user_id === "string" ? lead.assigned_user_id : null, assigneeName: null };
   // A call-in lead has no lead id, page or ad of its own; Page / Ad Name show the platform and ad its "Came from" names.
   if (lead.lead_source === "telecaller") {
     const cameFrom = LEAD_SOURCES.find((source) => source !== "telecaller" && source === lead.came_from_platform);
@@ -336,6 +340,22 @@ export async function updateLeadTriage(context: TenantRequestContext, leadId: st
   if (!data) throw new AppError("Lead not found for this tenant.", { status: 404, code: "LEAD_NOT_FOUND" });
   return { id: String(data.id), status: data.status as LeadStatus, label: data.label as LeadLabel, labelSource: (data.label_source as LeadLabelSource) ?? "telecaller" };
 }
+/**
+ * Sets (or with null, removes) a lead's second status. A direct tenant-scoped update, like the label: it is not part
+ * of the timeline. The timeline's status trigger fires only on an update of the `status` column, which this never sets.
+ */
+export async function updateLeadSecondStatus(context: TenantRequestContext, leadId: string, secondStatus: LeadStatus | null): Promise<{ id: string; status: LeadStatus; secondStatus: LeadStatus | null }> {
+  const { data, error } = await getSupabaseAdminClient().from("lead_data")
+    .update({ second_status: secondStatus })
+    .eq("tenant_id", context.tenantId)
+    .eq("id", leadId)
+    .select("id,status,second_status")
+    .maybeSingle();
+  if (error) throw new AppError("The lead could not be updated.", { status: 500, code: "LEAD_UPDATE_FAILED" });
+  if (!data) throw new AppError("Lead not found for this tenant.", { status: 404, code: "LEAD_NOT_FOUND" });
+  return { id: String(data.id), status: data.status as LeadStatus, secondStatus: (data.second_status as LeadStatus | null) ?? null };
+}
+
 /**
  * Permanently deletes one lead. Irreversible — the caller (the [id] DELETE route) must only reach
  * this after the user has explicitly confirmed, since there is no undo.

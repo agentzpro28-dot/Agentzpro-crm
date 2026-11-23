@@ -3,13 +3,15 @@ import { AppError } from "@/lib/server/app-error";
 
 const mocks = vi.hoisted(() => ({
   getLeadFormAnswers: vi.fn(),
+  updateLeadTriage: vi.fn(),
+  updateLeadSecondStatus: vi.fn(),
   resolveTenantRequestContext: vi.fn(),
 }));
 
-vi.mock("@/lib/server/lead-query-service", () => ({ getLeadFormAnswers: mocks.getLeadFormAnswers, deleteLead: vi.fn(), updateLeadTriage: vi.fn() }));
+vi.mock("@/lib/server/lead-query-service", () => ({ getLeadFormAnswers: mocks.getLeadFormAnswers, deleteLead: vi.fn(), updateLeadTriage: mocks.updateLeadTriage, updateLeadSecondStatus: mocks.updateLeadSecondStatus }));
 vi.mock("@/lib/server/tenant-context", () => ({ resolveTenantRequestContext: mocks.resolveTenantRequestContext }));
 
-const { GET } = await import("./route");
+const { GET, PATCH } = await import("./route");
 
 const CONTEXT = { tenantId: "tenant-a", userId: "11111111-1111-4111-8111-111111111111" };
 const LEAD = "22222222-2222-4222-8222-222222222222";
@@ -51,5 +53,50 @@ describe("GET /api/leads/[id] (form answers)", () => {
     const response = await get(LEAD);
     expect(response.status).toBe(401);
     expect(mocks.getLeadFormAnswers).not.toHaveBeenCalled();
+  });
+});
+
+function patch(body: unknown) {
+  const request = new Request(`https://crm.example.com/api/leads/${LEAD}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  return PATCH(request, { params: Promise.resolve({ id: LEAD }) });
+}
+
+describe("PATCH /api/leads/[id] (second status)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveTenantRequestContext.mockResolvedValue(CONTEXT);
+  });
+
+  it("saves a second status on its own, without the status/label path", async () => {
+    mocks.updateLeadSecondStatus.mockResolvedValue({ id: LEAD, status: "Site visit done", secondStatus: "Disqualified" });
+    const response = await patch({ secondStatus: "Disqualified" });
+    expect(response.status).toBe(200);
+    expect(mocks.updateLeadSecondStatus).toHaveBeenCalledWith(CONTEXT, LEAD, "Disqualified");
+    expect(mocks.updateLeadTriage).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ id: LEAD, status: "Site visit done", secondStatus: "Disqualified" });
+  });
+
+  it("removes it with null", async () => {
+    mocks.updateLeadSecondStatus.mockResolvedValue({ id: LEAD, status: "Working", secondStatus: null });
+    const response = await patch({ secondStatus: null });
+    expect(response.status).toBe(200);
+    expect(mocks.updateLeadSecondStatus).toHaveBeenCalledWith(CONTEXT, LEAD, null);
+  });
+
+  it("still sends a main status change to updateLeadTriage", async () => {
+    mocks.updateLeadTriage.mockResolvedValue({ id: LEAD, status: "Working", label: "Warm", labelSource: "default" });
+    const response = await patch({ status: "Working" });
+    expect(response.status).toBe(200);
+    expect(mocks.updateLeadTriage).toHaveBeenCalledWith(CONTEXT, LEAD, { status: "Working" });
+    expect(mocks.updateLeadSecondStatus).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown status, and more than one field in one request", async () => {
+    for (const body of [{ secondStatus: "Maybe" }, { status: "Working", secondStatus: "Sale" }, { label: "Hot", secondStatus: null }, {}]) {
+      const response = await patch(body);
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.updateLeadSecondStatus).not.toHaveBeenCalled();
+    expect(mocks.updateLeadTriage).not.toHaveBeenCalled();
   });
 });
