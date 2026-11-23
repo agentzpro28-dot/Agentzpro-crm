@@ -575,7 +575,7 @@ export function BillingPageClient({ overview, embedded = false, onChanged }: Rea
               <button className="button billing-offer__cta" type="button" onClick={() => void handlePay()} disabled={!pendingChecked || phase.kind === "starting"}>
                 {phase.kind === "starting" ? "Opening checkout…" : `Get ${tierName(selectedPlan.planName)} plan · Pay ${formatRupees(totalPaise)}`}
               </button>
-              <p className="billing-offer__fineprint">Renews automatically. Cancel anytime from Billing.</p>
+              <p className="billing-offer__fineprint">Renews automatically. Cancel anytime in your UPI app or bank.</p>
             </div>
             <PlanFeatures heading={`Everything in ${tierName(selectedPlan.planName)}:`} />
           </section>

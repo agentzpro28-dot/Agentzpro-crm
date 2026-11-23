@@ -180,8 +180,8 @@ export default function TermsPage() {
               <h2 className={styles.sectionTitle}>Cancellation and refunds</h2>
               <ul>
                 <li>
-                  <strong>Cancel anytime.</strong> The company owner can cancel the subscription at any time from
-                  Settings &rarr; Billing. Cancelling stops future renewals. You keep access until the end of the period
+                  <strong>Cancel anytime.</strong> The company owner can cancel at any time by stopping the autopay in
+                  their UPI app or with their bank. Cancelling stops future renewals. You keep access until the end of the period
                   you have already paid for.
                 </li>
                 <li>

@@ -1139,7 +1139,7 @@ type BillingState =
   | { status: "error"; message: string };
 
 /**
- * The active company's plan, seats, checkout and cancel — the same component as the /billing page, in
+ * The active company's plan, seats and checkout — the same component as the /billing page, in
  * its embedded form. Owner only: an employee sees just the "only the owner" message, like Invoices.
  * (The /billing page stays: a company whose access has ended is sent there and cannot open Settings.)
  */
