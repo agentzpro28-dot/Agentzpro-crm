@@ -63,7 +63,7 @@ vi.mock("@/lib/server/env", () => ({
   getRazorpayEnv: () => ({ RAZORPAY_KEY_ID: "rzp_test_key", RAZORPAY_KEY_SECRET: "s", RAZORPAY_WEBHOOK_SECRET: "w" }),
 }));
 
-const { startCheckout, cancelAtPeriodEnd, getBillingOverview } = await import("@/lib/server/billing-service");
+const { startCheckout, getBillingOverview } = await import("@/lib/server/billing-service");
 
 const OWNER: BillingAccess = {
   userId: "owner-1",
@@ -250,55 +250,6 @@ describe("startCheckout", () => {
   it("rejects malformed input", async () => {
     await expect(startCheckout(OWNER, { planCode: "pro_monthly", seats: 0 })).rejects.toMatchObject({ code: "INVALID_CHECKOUT_INPUT" });
     await expect(startCheckout(OWNER, { planCode: "Pro Monthly!", seats: 2 })).rejects.toMatchObject({ code: "INVALID_CHECKOUT_INPUT" });
-  });
-});
-
-describe("cancelAtPeriodEnd", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    calls.length = 0;
-  });
-
-  function withCurrent(subscription: Record<string, unknown> | null) {
-    answer = (call) => {
-      if (call.table === "tenants_subscriptions") return { data: { active_billing_subscription_id: subscription ? "bs-1" : null } };
-      if (call.table === "billing_subscriptions" && call.operation === "select") return { data: subscription };
-      return { data: null };
-    };
-  }
-
-  it("cancels an active subscription at cycle end and keeps the paid period", async () => {
-    withCurrent({
-      billing_subscription_id: "bs-1",
-      razorpay_subscription_id: "sub_ACTIVE",
-      razorpay_status: "active",
-      seat_quantity: 3,
-      current_period_end: "2026-10-26T00:00:00.000Z",
-      cancel_at_period_end: false,
-      billing_plans: null,
-    });
-    cancelSubscription.mockResolvedValue({ id: "sub_ACTIVE", status: "active" });
-
-    await expect(cancelAtPeriodEnd({ ...OWNER, subscriptionStatus: "active" })).resolves.toEqual({ periodEndsAt: "2026-10-26T00:00:00.000Z" });
-    expect(cancelSubscription).toHaveBeenCalledWith("sub_ACTIVE", { atCycleEnd: true });
-    expect(calls).toContainEqual(
-      expect.objectContaining({
-        table: "billing_subscriptions",
-        operation: "update",
-        values: { razorpay_status: "active", cancel_at_period_end: true },
-        filters: { billing_subscription_id: "bs-1", tenant_id: OWNER.tenantId },
-      }),
-    );
-  });
-
-  it("refuses when there is no active subscription (Razorpay rejects cycle-end cancel before activation)", async () => {
-    withCurrent(null);
-    await expect(cancelAtPeriodEnd(OWNER)).rejects.toMatchObject({ code: "NO_ACTIVE_SUBSCRIPTION" });
-    expect(cancelSubscription).not.toHaveBeenCalled();
-  });
-
-  it("refuses an employee", async () => {
-    await expect(cancelAtPeriodEnd({ ...OWNER, membershipRole: "employee" })).rejects.toMatchObject({ code: "BILLING_OWNER_REQUIRED" });
   });
 });
 

@@ -2842,8 +2842,7 @@ button.mvp-field-box__control:disabled { pointer-events: none; opacity: .5; bord
   text-align: left;
 }
 
-.billing-history,
-.billing-cancel {
+.billing-history {
   display: grid;
   gap: 14px;
 }
@@ -3137,17 +3136,6 @@ button.mvp-field-box__control:disabled { pointer-events: none; opacity: .5; bord
 .billing-total strong {
   color: var(--text);
   font-size: 1.1rem;
-}
-
-.billing-cancel__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.billing-cancel__confirm {
-  background: var(--danger);
-  border-color: var(--danger);
 }
 
 .billing-history__list {
