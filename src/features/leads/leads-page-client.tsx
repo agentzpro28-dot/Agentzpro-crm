@@ -16,7 +16,7 @@ import { useNewLeadsCount, type NewLeadsSnapshot } from "@/features/leads/use-ne
 const LOADING_SOURCES: readonly LeadSource[] = ["telecaller"];
 
 type LeadLabelSource = "default" | "ai" | "telecaller";
-type Lead = { id: string; leadgenId: string; leadName: string | null; phone: string | null; email?: string | null; facebookPage: string; adName: string; leadDate: string; status: LeadStatus; label: LeadLabel; labelSource: LeadLabelSource; assignedUserId?: string | null; assigneeName?: string | null; hasOpenTask?: boolean; openTaskTitle?: string | null; source?: LeadSource };
+type Lead = { id: string; leadgenId: string; leadName: string | null; phone: string | null; email?: string | null; facebookPage: string; adName: string; leadDate: string; status: LeadStatus; secondStatus?: LeadStatus | null; label: LeadLabel; labelSource: LeadLabelSource; assignedUserId?: string | null; assigneeName?: string | null; hasOpenTask?: boolean; openTaskTitle?: string | null; source?: LeadSource };
 
 /** Who owns the lead: initial + name, or a quiet "Unassigned". Changed from the lead's detail drawer. */
 function AssigneeCell({ name }: { name: string | null }) {
@@ -162,6 +162,9 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
   const applyStatus = useCallback((leadId: string, nextStatus: LeadStatus) => {
     setLeads((current) => current.map((existing) => existing.id === leadId ? { ...existing, status: nextStatus } : existing));
   }, []);
+  const applySecondStatus = useCallback((leadId: string, secondStatus: LeadStatus | null) => {
+    setLeads((current) => current.map((existing) => existing.id === leadId ? { ...existing, secondStatus } : existing));
+  }, []);
   const applyOpenTask = useCallback((leadId: string, hasOpenTask: boolean, title?: string | null) => {
     setLeads((current) => current.map((existing) => existing.id === leadId ? { ...existing, hasOpenTask, openTaskTitle: hasOpenTask ? title ?? existing.openTaskTitle ?? null : null } : existing));
   }, []);
@@ -220,6 +223,7 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
         <RowDropdown ariaLabel={`Change status for ${lead.leadName ?? "Unnamed Lead"}`} value={lead.status} options={LEAD_STATUSES} width={200} tone={statusHighlight(lead.status)}
           open={openRowDropdown === `${lead.id}:status`} onOpenChange={(next) => setOpenRowDropdown(next ? `${lead.id}:status` : null)}
           onChange={(next) => void updateStatus(lead.id, lead.status, next)} />
+        {lead.secondStatus && lead.secondStatus !== lead.status ? <span className="mvp-second-status" data-tone={statusHighlight(lead.secondStatus)} title={`Second status: ${lead.secondStatus}`}>, {lead.secondStatus}</span> : null}
       </td><td className="mvp-label-cell">
         <RowDropdown ariaLabel={`Change label for ${lead.leadName ?? "Unnamed Lead"}`} value={lead.label} options={LEAD_LABELS} width={140}
           open={openRowDropdown === `${lead.id}:label`} onOpenChange={(next) => setOpenRowDropdown(next ? `${lead.id}:label` : null)}
@@ -230,7 +234,7 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
         <AssigneeCell name={lead.assigneeName ?? null} />
       </td></tr>)}
     </tbody></table></section>
-    {drawerLead ? <LeadDrawer key={drawerLead.id} lead={drawerLead} initialPendingStatus={drawerPendingStatus ?? undefined} scrollToTimeline={focusedLead?.id === drawerLead.id} timezone={timezone} onClose={closeDrawer} assignees={filters.options.assignees} isOwner={filters.options.isOwner} onAssigneeChange={applyAssignee} onStatusChange={applyStatus} onOpenTaskChange={applyOpenTask} /> : null}
+    {drawerLead ? <LeadDrawer key={drawerLead.id} lead={drawerLead} initialPendingStatus={drawerPendingStatus ?? undefined} scrollToTimeline={focusedLead?.id === drawerLead.id} timezone={timezone} onClose={closeDrawer} assignees={filters.options.assignees} isOwner={filters.options.isOwner} onAssigneeChange={applyAssignee} onStatusChange={applyStatus} onSecondStatusChange={applySecondStatus} onOpenTaskChange={applyOpenTask} /> : null}
     <button className="mvp-fab-add" type="button" aria-label="Add call-in lead" onClick={() => setIsAddLeadOpen(true)}>
       <Plus size={26} aria-hidden="true" />
       <span className="mvp-fab-add__tip" aria-hidden="true">Add Lead</span>

@@ -6,7 +6,7 @@ import { getLeadsCursor, queryLeads, resolveTenantTimezone, type LeadRow, type P
 import { resolveTenantRequestContext } from "@/lib/server/tenant-context";
 
 const requestSchema = z.object({ search: z.string().max(200).optional(), quickFilter: z.enum(["all", "today", "month"]).optional(), dateFrom: z.string().optional(), dateTo: z.string().optional(), pageRecordId: z.string().uuid().optional(), adId: z.string().min(1).max(100).or(z.literal("unattributed")).optional(), campaignId: z.string().regex(GOOGLE_CAMPAIGN_ID_PATTERN).or(z.literal("unattributed")).optional(), status: z.enum(LEAD_STATUSES).optional(), label: z.enum(LEAD_LABELS).optional(), assignee: z.union([z.enum(ASSIGNEE_FILTER_SHORTCUTS), z.string().uuid()]).optional(), source: z.enum(LEAD_SOURCES).optional(), sortField: z.enum(["leadName", "leadDate"]).optional(), sortDirection: z.enum(["asc", "desc"]).optional() }).strict();
-const HEADER = "Lead ID,Lead Name,Lead Date,Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To";
+const HEADER = "Lead ID,Lead Name,Lead Date,Status,Second Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To";
 /** Rows per read: Supabase's API answers at most 1,000 rows per request by default (its "Max rows" setting). */
 const EXPORT_PAGE_ROWS = 1000;
 
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 }
 
 function csvRow(row: LeadRow, date: Intl.DateTimeFormat): string {
-  return [row.leadgenId, row.leadName, date.format(new Date(row.leadDate)), row.status, row.label, row.email, row.phone, row.source === "telecaller" ? null : row.facebookPage, exportAdName(row), row.adId, row.assigneeName].map(csvValue).join(",");
+  return [row.leadgenId, row.leadName, date.format(new Date(row.leadDate)), row.status, shownSecondStatus(row), row.label, row.email, row.phone, row.source === "telecaller" ? null : row.facebookPage, exportAdName(row), row.adId, row.assigneeName].map(csvValue).join(",");
 }
 /**
  * A call-in lead's Ad Name cell stays empty. So does a webhook lead's when its tool sent no "source", and a 99acres
@@ -74,5 +74,9 @@ function exportAdName(row: { source: string; adName: string }): string | null {
   // A Housing.com lead's too, when Housing.com sent no project.
   if (row.source === "housing" && row.adName === "-") return null;
   return row.adName;
+}
+/** The second status, left empty when it is the same as the main status (the table shows that status once too). */
+function shownSecondStatus(row: { status: string; secondStatus?: string | null }): string | null {
+  return row.secondStatus && row.secondStatus !== row.status ? row.secondStatus : null;
 }
 function csvValue(value: string | null): string { const safe = String(value ?? "").replace(/^[=+\-@\t\r]/, "'$&"); return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; }

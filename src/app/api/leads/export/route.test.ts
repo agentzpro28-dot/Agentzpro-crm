@@ -34,14 +34,29 @@ describe("authenticated lead CSV route", () => {
     expect(response.status).toBe(200);
     expect(mocks.query).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, expect.objectContaining(filters), FIRST_PAGE);
     const lines = csv.replace(/^﻿/, "").split("\r\n");
-    expect(lines[0]).toBe("Lead ID,Lead Name,Lead Date,Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To");
+    expect(lines[0]).toBe("Lead ID,Lead Name,Lead Date,Status,Second Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To");
     // The date sits right after the name in every row too, formatted on the company clock.
     const firstDate = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-09-09T02:00:00Z"));
-    expect(lines[1]).toBe(`lg-1,First,"${firstDate}",New Lead,Warm,first@example.com,111,Page A,Ad A,ad-a,`);
+    expect(lines[1]).toBe(`lg-1,First,"${firstDate}",New Lead,,Warm,first@example.com,111,Page A,Ad A,ad-a,`);
     expect(csv).toContain("First");
     expect(csv).toContain("Second");
     expect(csv).not.toContain("Project");
     expect(csv).not.toMatch(/token|secret|authorization/i);
+  });
+
+  it("writes the second status after the main one, and leaves it empty when unset or equal to the main status", async () => {
+    mocks.context.mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
+    const base = { leadgenId: "", leadName: "Asha", email: null, phone: "9876543210", facebookPage: "Page A", adName: "Ad A", adId: "ad-a", label: "Warm", leadDate: "2026-11-20T05:00:00Z", assigneeName: null, source: "facebook" };
+    onePage({ timezone: "Asia/Kolkata", total: 3, items: [
+      { ...base, status: "Site visit done", secondStatus: "Disqualified" },
+      { ...base, status: "Working", secondStatus: null },
+      { ...base, status: "Sale", secondStatus: "Sale" },
+    ] });
+    const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({}), headers: { "content-type": "application/json" } }));
+    const lines = (await response.text()).replace(/^\uFEFF/, "").split("\r\n");
+    // Lead ID, Lead Name, then the quoted date (one comma inside) take cells 0-3; Status, Second Status, Label follow.
+    const cells = lines.slice(1).map((line) => line.split(",").slice(4, 7));
+    expect(cells).toEqual([["Site visit done", "Disqualified", "Warm"], ["Working", "", "Warm"], ["Sale", "", "Warm"]]);
   });
 
   /**
@@ -84,7 +99,7 @@ describe("authenticated lead CSV route", () => {
     const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all", source: "telecaller" }), headers: { "content-type": "application/json" } }));
     expect(response.status).toBe(200);
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-10-26T05:00:00Z"));
-    expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`,Caller,"${date}",New Lead,Warm,,9876543210,,,,Ravi`);
+    expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`,Caller,"${date}",New Lead,,Warm,,9876543210,,,,Ravi`);
   });
 
   it.each([
@@ -111,7 +126,7 @@ describe("authenticated lead CSV route, webhook leads", () => {
     expect(response.status).toBe(200);
     expect(mocks.query).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, { quickFilter: "all", source: "custom_webhook" }, FIRST_PAGE);
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-11T05:00:00Z"));
-    expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`lp-42,John Doe,"${date}",New Lead,Warm,john@example.com,9876543210,Webhook,Landing Page,,`);
+    expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`lp-42,John Doe,"${date}",New Lead,,Warm,john@example.com,9876543210,Webhook,Landing Page,,`);
   });
 
   it("leaves the Ad Name cell empty for a webhook lead sent without a source (never '-)", async () => {
@@ -122,7 +137,7 @@ describe("authenticated lead CSV route, webhook leads", () => {
     });
     const response = await POST(new Request("http://localhost/api/leads/export", { method: "POST", body: JSON.stringify({ quickFilter: "all", source: "custom_webhook" }), headers: { "content-type": "application/json" } }));
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-11T05:00:00Z"));
-    expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`,Asha,"${date}",New Lead,Warm,asha@example.com,,Webhook,,,`);
+    expect((await response.text()).replace(/^﻿/, "").split("\r\n")[1]).toBe(`,Asha,"${date}",New Lead,,Warm,asha@example.com,,Webhook,,,`);
   });
 });
 
@@ -140,8 +155,8 @@ describe("authenticated lead CSV route, 99acres leads", () => {
     expect(response.status).toBe(200);
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-17T05:00:00Z"));
     const lines = (await response.text()).replace(/^﻿/, "").split("\r\n");
-    expect(lines[1]).toBe(`ENQ-1,Ravi,"${date}",New Lead,Warm,,9876543210,99acres,Green Valley,,`);
-    expect(lines[2]).toBe(`,99acres Lead,"${date}",New Lead,Warm,,9123456789,99acres,,,`);
+    expect(lines[1]).toBe(`ENQ-1,Ravi,"${date}",New Lead,,Warm,,9876543210,99acres,Green Valley,,`);
+    expect(lines[2]).toBe(`,99acres Lead,"${date}",New Lead,,Warm,,9123456789,99acres,,,`);
   });
 });
 
@@ -159,8 +174,8 @@ describe("authenticated lead CSV route, MagicBricks leads", () => {
     expect(response.status).toBe(200);
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-18T05:00:00Z"));
     const lines = (await response.text()).replace(/^﻿/, "").split("\r\n");
-    expect(lines[1]).toBe(`MB-ENQ-1,Test Buyer,"${date}",New Lead,Warm,,9876543210,MagicBricks,Sample Towers,,`);
-    expect(lines[2]).toBe(`,MagicBricks Lead,"${date}",New Lead,Warm,,9123456789,MagicBricks,,,`);
+    expect(lines[1]).toBe(`MB-ENQ-1,Test Buyer,"${date}",New Lead,,Warm,,9876543210,MagicBricks,Sample Towers,,`);
+    expect(lines[2]).toBe(`,MagicBricks Lead,"${date}",New Lead,,Warm,,9123456789,MagicBricks,,,`);
   });
 });
 
@@ -178,8 +193,8 @@ describe("authenticated lead CSV route, Housing.com leads", () => {
     expect(response.status).toBe(200);
     const date = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }).format(new Date("2026-11-20T05:00:00Z"));
     const lines = (await response.text()).replace(/^﻿/, "").split("\r\n");
-    expect(lines[1]).toBe(`HS-ENQ-1,Test Buyer,"${date}",New Lead,Warm,,9876543210,Housing.com,Sample Heights,,`);
-    expect(lines[2]).toBe(`,Housing.com Lead,"${date}",New Lead,Warm,,9123456789,Housing.com,,,`);
+    expect(lines[1]).toBe(`HS-ENQ-1,Test Buyer,"${date}",New Lead,,Warm,,9876543210,Housing.com,Sample Heights,,`);
+    expect(lines[2]).toBe(`,Housing.com Lead,"${date}",New Lead,,Warm,,9123456789,Housing.com,,,`);
   });
 });
 
@@ -217,7 +232,7 @@ describe("large downloads", () => {
     mocks.query.mockReset();
     const response = await exportAll();
     expect(response.status).toBe(200);
-    expect((await response.text()).replace(/^﻿/, "")).toBe("Lead ID,Lead Name,Lead Date,Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To");
+    expect((await response.text()).replace(/^﻿/, "")).toBe("Lead ID,Lead Name,Lead Date,Status,Second Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To");
     expect(mocks.query).not.toHaveBeenCalled();
   });
 

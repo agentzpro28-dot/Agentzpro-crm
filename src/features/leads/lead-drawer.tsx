@@ -15,7 +15,7 @@ import { OptionPicker, type PickerOption } from "@/features/leads/option-picker"
 import { readError, type AssigneeOption } from "@/features/leads/use-lead-filters";
 import type { LeadTask } from "@/lib/server/lead-timeline-service";
 
-export interface DrawerLead { id: string; leadName: string | null; phone: string | null; email?: string | null; facebookPage: string; adName: string; leadDate?: string; label?: string; status: LeadStatus; assignedUserId?: string | null; assigneeName?: string | null }
+export interface DrawerLead { id: string; leadName: string | null; phone: string | null; email?: string | null; facebookPage: string; adName: string; leadDate?: string; label?: string; status: LeadStatus; secondStatus?: LeadStatus | null; assignedUserId?: string | null; assigneeName?: string | null }
 
 const LABEL_PILLS: Record<string, string> = { Hot: "red", Warm: "yellow", Cold: "blue", "Not Interested": "gray" };
 
@@ -117,7 +117,7 @@ function message(cause: unknown, fallback: string): string {
  * timeline. Every write goes through the tenant-scoped API routes; the timeline rows themselves are written
  * by the database, so after each change the drawer only asks the timeline to refresh.
  */
-export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, onClose, onStatusChange, onOpenTaskChange, onAssigneeChange, initialPendingStatus, scrollToTimeline }: {
+export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, onClose, onStatusChange, onSecondStatusChange, onOpenTaskChange, onAssigneeChange, initialPendingStatus, scrollToTimeline }: {
   lead: DrawerLead;
   timezone: string;
   /** Active members the lead can be assigned to. The "Assigned to" card shows only when onAssigneeChange is given. */
@@ -133,6 +133,8 @@ export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, on
   /** Opened from a task alert: scroll down to the latest timeline entry once the timeline has loaded. */
   scrollToTimeline?: boolean;
   onStatusChange: (leadId: string, status: LeadStatus) => void;
+  /** The "Second status" box shows only when this is given. Its save is not part of the timeline. */
+  onSecondStatusChange?: (leadId: string, secondStatus: LeadStatus | null) => void;
   onOpenTaskChange: (leadId: string, hasOpenTask: boolean, title?: string | null) => void;
   onAssigneeChange?: (leadId: string, assignedUserId: string | null, assigneeName: string | null) => void;
 }) {
@@ -141,6 +143,7 @@ export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, on
   const closeRef = useRef<HTMLButtonElement>(null);
   const timelineRef = useRef<LeadTimelineHandle>(null);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [secondOpen, setSecondOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // A status the telecaller picked but has not saved. It is saved only when a task or a note is saved with it, so the
   // timeline never shows a status change nobody followed up; closing the drawer simply drops it.
@@ -162,7 +165,7 @@ export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, on
     document.body.style.overflow = "hidden";
     closeRef.current?.focus();
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !statusOpen) { event.preventDefault(); onClose(); return; }
+      if (event.key === "Escape" && !statusOpen && !secondOpen) { event.preventDefault(); onClose(); return; }
       if (event.key !== "Tab") return;
       const focusable = panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
       if (!focusable?.length) return;
@@ -173,7 +176,7 @@ export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, on
     }
     document.addEventListener("keydown", onKeyDown);
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", onKeyDown); };
-  }, [onClose, statusOpen]);
+  }, [onClose, statusOpen, secondOpen]);
 
   useEffect(() => {
     if (!scrollToTimeline) return;
@@ -284,6 +287,10 @@ export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, on
                 open={statusOpen} onOpenChange={setStatusOpen} onChange={chooseStatus} />
               <p className="mvp-lead-status__hint">{pendingStatus ? "Not saved yet. Add a task or a note to save it." : "Update it after every call."}</p>
             </div>
+            {onSecondStatusChange
+              ? <SecondStatusCard lead={lead} mainStatus={displayStatus} open={secondOpen} onOpenChange={setSecondOpen} onError={setError}
+                onSaved={(saved) => onSecondStatusChange(lead.id, saved)} />
+              : null}
           </StepItem>
           <StepItem number={2} done={shown.task} current={currentStep === "task"}>
             <TaskCard leadId={lead.id} timezone={timezone} tasks={tasks} locked={isTaskCreationLocked(displayStatus)} pendingStatus={pendingStatus}
@@ -297,6 +304,52 @@ export function LeadDrawer({ lead, timezone, assignees = [], isOwner = false, on
       </div>
     </aside>
   </>;
+}
+
+const NO_SECOND_STATUS = "None";
+type SecondStatusChoice = LeadStatus | typeof NO_SECOND_STATUS;
+
+/**
+ * An optional second status next to the main one ("Site visit done" + "Disqualified"). Unlike the main status it is
+ * saved the moment it is picked, needs no task or note, and is never written to the timeline. "None" removes it.
+ * The main status is left out of the list, so the two can never be picked the same.
+ */
+function SecondStatusCard({ lead, mainStatus, open, onOpenChange, onError, onSaved }: {
+  lead: DrawerLead;
+  mainStatus: LeadStatus;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onError: (message: string | null) => void;
+  onSaved: (secondStatus: LeadStatus | null) => void;
+}) {
+  const [saved, setSaved] = useState<LeadStatus | null>(lead.secondStatus ?? null);
+  const [busy, setBusy] = useState(false);
+  const options: readonly SecondStatusChoice[] = [NO_SECOND_STATUS, ...LEAD_STATUSES.filter((status) => status !== mainStatus)];
+
+  async function choose(next: SecondStatusChoice) {
+    const value = next === NO_SECOND_STATUS ? null : next;
+    if (busy || value === saved) return;
+    onError(null);
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/leads/${lead.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ secondStatus: value }) });
+      if (!response.ok) throw new Error(await readError(response, "The second status could not be updated."));
+      const updated = await response.json() as { secondStatus: LeadStatus | null };
+      setSaved(updated.secondStatus);
+      onSaved(updated.secondStatus);
+    } catch (cause) {
+      onError(message(cause, "The second status could not be updated."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="mvp-lead-status mvp-lead-status--second" data-tone={saved ? statusHighlight(saved) : "gray"}>
+    <span className="mvp-lead-status__title">Second status</span>
+    <RowDropdown<SecondStatusChoice> ariaLabel={`Change second status for ${lead.leadName ?? "Unnamed Lead"}`} value={saved ?? NO_SECOND_STATUS} options={options} width={220}
+      open={open} onOpenChange={onOpenChange} onChange={(next) => void choose(next)} />
+    <p className="mvp-lead-status__hint">{busy ? "Saving..." : "Optional. Saved at once."}</p>
+  </div>;
 }
 
 /** Who owns the lead, for an employee: a read-only chip, same look as the leads table's Assigned To column. */
