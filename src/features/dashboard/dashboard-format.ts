@@ -50,7 +50,7 @@ export function formatCount(value: number): string {
 export interface RankedStatus { status: string; count: number; share: number }
 
 /**
- * Status breakdown for the ranked chart: every status (the RPC zero-fills all 13), biggest first, so
+ * Status breakdown for the ranked chart: every status (the RPC zero-fills all 15), biggest first, so
  * statuses with 0 leads sit at the bottom. Ties keep the order the RPC sends (the LEAD_STATUSES order),
  * so rows don't reshuffle between identical refreshes. `share` is a whole-number percentage of all
  * leads in view.

@@ -17,6 +17,7 @@ export const LEAD_STATUSES = [
   "Disqualified",
   // Appended last on purpose, so existing statuses keep their positions.
   "Asking Time for Taking Decision",
+  "WhatsApp Done",
 ] as const;
 
 export const LEAD_LABELS = ["Hot", "Warm", "Cold", "Not Interested"] as const;
@@ -54,6 +55,7 @@ export const STATUS_HIGHLIGHTS = {
   "Details send via WhatsApp": "green",
   Disqualified: "red",
   "Asking Time for Taking Decision": "blue",
+  "WhatsApp Done": "green",
 } as const satisfies Record<LeadStatus, string>;
 
 export type StatusHighlight = (typeof STATUS_HIGHLIGHTS)[keyof typeof STATUS_HIGHLIGHTS];
