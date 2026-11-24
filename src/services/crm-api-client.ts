@@ -2,6 +2,7 @@ import type { ConnectionOverview, EligibleFacebookPage } from "@/lib/types";
 import type { PortalId, PortalIntegrationOverview, PortalIntegrationStatus } from "@/lib/portal-leads/portals";
 import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 import type { HousingOverview } from "@/lib/housing/housing";
+import type { SulekhaOverview } from "@/lib/sulekha/sulekha";
 
 type ApiErrorPayload = { error?: { message?: string; code?: string; details?: Record<string, unknown> } };
 
@@ -137,6 +138,12 @@ export async function getHousingStatus(): Promise<HousingOverview> { return shar
 /** The Integrations card's Housing.com view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
 export async function getHousingOverview(): Promise<HousingOverview> { return request<HousingOverview>("/api/integrations/housing?details=1"); }
 export async function createHousingIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/housing", { method: "POST", body: "{}" }); }
+
+/** Whether this company created its Sulekha URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
+export async function getSulekhaStatus(): Promise<SulekhaOverview> { return sharedConnectionCheck<SulekhaOverview>("/api/integrations/sulekha", false); }
+/** The Integrations card's Sulekha view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
+export async function getSulekhaOverview(): Promise<SulekhaOverview> { return request<SulekhaOverview>("/api/integrations/sulekha?details=1"); }
+export async function createSulekhaIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/sulekha", { method: "POST", body: "{}" }); }
 
 /** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
 export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }

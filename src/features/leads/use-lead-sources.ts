@@ -9,6 +9,8 @@ import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 import { getMagicbricksStatus } from "@/services/crm-api-client";
 import type { HousingOverview } from "@/lib/housing/housing";
 import { getHousingStatus } from "@/services/crm-api-client";
+import type { SulekhaOverview } from "@/lib/sulekha/sulekha";
+import { getSulekhaStatus } from "@/services/crm-api-client";
 
 /** The connection details the dashboard's warning needs; null where that check could not be loaded. */
 export type ConnectionHealth = {
@@ -28,6 +30,8 @@ export type SourceChecks = {
   magicbricks: Pick<MagicbricksOverview, "hasIntegration"> | null;
   /** Whether the company created its Housing.com URL. */
   housing: Pick<HousingOverview, "hasIntegration"> | null;
+  /** Whether the company created its Sulekha URL. */
+  sulekha: Pick<SulekhaOverview, "hasIntegration"> | null;
 };
 
 /**
@@ -38,9 +42,9 @@ export type SourceChecks = {
  * webhook was created. A portal (99acres) counts once its webhook URL was generated. Disconnected Pages and a stopped
  * webhook still count (neither row is ever deleted), so the company's existing leads stay filterable. A check that could
  * not be loaded keeps its source, so an error never hides real leads. MagicBricks counts once its webhook URL was
- * generated. Housing.com counts once its webhook URL was generated.
+ * generated. Housing.com counts once its webhook URL was generated. Sulekha counts once its webhook URL was generated.
  */
-export function availableLeadSources({ meta, google, webhook, portals, magicbricks, housing }: SourceChecks): LeadSource[] {
+export function availableLeadSources({ meta, google, webhook, portals, magicbricks, housing, sulekha }: SourceChecks): LeadSource[] {
   const portal = (id: PortalIntegrationStatus["portal"]) => portals === null || portals.some((item) => item.portal === id && item.hasIntegration);
   const shown: Record<LeadSource, boolean> = {
     facebook: meta === null || meta.pages.length > 0,
@@ -49,6 +53,7 @@ export function availableLeadSources({ meta, google, webhook, portals, magicbric
     "99acres": portal("99acres"),
     magicbricks: magicbricks === null || magicbricks.hasIntegration,
     housing: housing === null || housing.hasIntegration,
+    sulekha: sulekha === null || sulekha.hasIntegration,
     telecaller: true,
   };
   return LEAD_SOURCES.filter((source) => shown[source]);
@@ -64,7 +69,7 @@ export function useLeadSources(): { sources: LeadSource[] | null; health: Connec
 
   useEffect(() => {
     let active = true;
-    void Promise.allSettled([getConnectionOverview(), getGoogleAdsOverview(), getCustomWebhookOverview(), getPortalIntegrationStatuses(), getMagicbricksStatus(), getHousingStatus()]).then(([metaResult, googleResult, webhookResult, portalResult, magicbricksResult, housingResult]) => {
+    void Promise.allSettled([getConnectionOverview(), getGoogleAdsOverview(), getCustomWebhookOverview(), getPortalIntegrationStatuses(), getMagicbricksStatus(), getHousingStatus(), getSulekhaStatus()]).then(([metaResult, googleResult, webhookResult, portalResult, magicbricksResult, housingResult, sulekhaResult]) => {
       if (!active) return;
       const meta = metaResult.status === "fulfilled" ? metaResult.value : null;
       const google = googleResult.status === "fulfilled" ? googleResult.value : null;
@@ -72,8 +77,9 @@ export function useLeadSources(): { sources: LeadSource[] | null; health: Connec
       const portals = portalResult.status === "fulfilled" ? portalResult.value.portals : null;
       const magicbricks = magicbricksResult.status === "fulfilled" ? magicbricksResult.value : null;
       const housing = housingResult.status === "fulfilled" ? housingResult.value : null;
+      const sulekha = sulekhaResult.status === "fulfilled" ? sulekhaResult.value : null;
       setState({
-        sources: availableLeadSources({ meta, google, webhook, portals, magicbricks, housing }),
+        sources: availableLeadSources({ meta, google, webhook, portals, magicbricks, housing, sulekha }),
         health: {
           meta: meta?.connectionStatus ?? null,
           google: google ? { hasWebhook: google.hasWebhook, webhookStopped: google.webhookStopped, needsReconnect: google.needsReconnect } : null,

@@ -689,6 +689,32 @@ describe("Housing.com leads", () => {
   });
 });
 
+describe("Sulekha leads", () => {
+  it("shows the Sulekha lead id, 'Sulekha' as the page and the service as the ad, with no ad id", async () => {
+    const sulekha = { leadgen_id: null, google_lead_id: null, google_campaign_id: null, custom_lead_ref: null, custom_source_name: null, portal_lead_ref: null, portal_project_name: null, magicbricks_lead_ref: null, magicbricks_project_name: null, housing_lead_ref: null, housing_project_name: null, lead_phone: "9876543210", ad_id: null, ad_name: null, lead_created_time: "2026-11-24T10:00:00Z", status: "New Lead", label: "Warm", label_source: "ai", lead_source: "sulekha", facebook_pages: null };
+    const leads = builder({ data: [
+      { ...sulekha, id: "lead-1", lead_name: "Test Customer", sulekha_lead_ref: "SUL-ENQ-1", sulekha_service_name: "Interior Designers" },
+      { ...sulekha, id: "lead-2", lead_name: "Sulekha Lead", sulekha_lead_ref: null, sulekha_service_name: null },
+    ], error: null, count: 2 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
+    expect(leads.select.mock.calls[0][0]).toContain("sulekha_lead_ref,sulekha_service_name");
+    expect(leads.select.mock.calls[0][0]).not.toContain("sulekha_integration_id");
+    expect(result.items[0]).toMatchObject({ source: "sulekha", leadgenId: "SUL-ENQ-1", facebookPage: "Sulekha", adName: "Interior Designers", adId: null });
+    expect(result.items[1]).toMatchObject({ source: "sulekha", leadgenId: "", facebookPage: "Sulekha", adName: "-" });
+  });
+
+  it("filters the Sulekha source by lead_platform, like any platform", async () => {
+    const leads = builder({ data: [], error: null, count: 0 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    await queryLeads(context, { source: "sulekha" });
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.eq).toHaveBeenCalledWith("lead_platform", "sulekha");
+  });
+});
+
 describe("the company timezone of a signed-in request", () => {
   it("uses the timezone the login check already read, with no second read of the company row", async () => {
     const leads = builder({ data: [], error: null, count: 0 });

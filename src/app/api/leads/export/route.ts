@@ -73,6 +73,8 @@ function exportAdName(row: { source: string; adName: string }): string | null {
   if (row.source === "magicbricks" && row.adName === "-") return null;
   // A Housing.com lead's too, when Housing.com sent no project.
   if (row.source === "housing" && row.adName === "-") return null;
+  // A Sulekha lead's too, when Sulekha sent no service.
+  if (row.source === "sulekha" && row.adName === "-") return null;
   return row.adName;
 }
 /** The second status, left empty when it is the same as the main status (the table shows that status once too). */
