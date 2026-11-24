@@ -103,12 +103,13 @@ export const TIMELINE_FILTER_TYPES: Record<Exclude<TimelineFilter, "all">, reado
 // webhook URL (shown as "Webhook"); 99acres = pushed by the 99acres portal (src/lib/portal-leads/portals.ts).
 // magicbricks = pushed by MagicBricks (src/lib/magicbricks/magicbricks.ts; supabase/migrations/20261118170000_magicbricks_leads.sql).
 // housing = pushed by Housing.com (src/lib/housing/housing.ts; supabase/migrations/20261120120000_housing_leads.sql).
-export const LEAD_SOURCES = ["facebook", "telecaller", "google_ads", "custom_webhook", "99acres", "magicbricks", "housing"] as const;
+// sulekha = pushed by Sulekha (src/lib/sulekha/sulekha.ts; supabase/migrations/20261124120000_sulekha_leads.sql).
+export const LEAD_SOURCES = ["facebook", "telecaller", "google_ads", "custom_webhook", "99acres", "magicbricks", "housing", "sulekha"] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
-export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = { facebook: "Facebook", telecaller: "Telecaller", google_ads: "Google Ads", custom_webhook: "Webhook", "99acres": "99acres", magicbricks: "MagicBricks", housing: "Housing.com" };
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = { facebook: "Facebook", telecaller: "Telecaller", google_ads: "Google Ads", custom_webhook: "Webhook", "99acres": "99acres", magicbricks: "MagicBricks", housing: "Housing.com", sulekha: "Sulekha" };
 
 /** Sources whose leads have no Facebook Page or ad, so the Page / Ad filters are greyed out and cleared on them. */
-export const SOURCES_WITHOUT_PAGE_AD: readonly LeadSource[] = ["google_ads", "custom_webhook", "99acres", "magicbricks", "housing"];
+export const SOURCES_WITHOUT_PAGE_AD: readonly LeadSource[] = ["google_ads", "custom_webhook", "99acres", "magicbricks", "housing", "sulekha"];
 
 // Where a call-in lead can say it came from: the ad platforms only. Telecaller is how it entered, not where the person
 // came from, and Webhook is a delivery channel, not an ad platform. Listed explicitly, so a new lead source never joins

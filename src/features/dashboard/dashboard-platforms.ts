@@ -93,6 +93,18 @@ export const DASHBOARD_PLATFORMS = [
     emptyState: { title: "No Housing.com leads match these filters", description: "Enquiries Housing.com sends to your Housing.com webhook URL show up here instantly." },
   },
   {
+    // Enquiries Sulekha pushes to the company's Sulekha URL. Totals, status, label and timeline, so
+    // get_dashboard_platform_stats_v2 needs no change. An enquiry whose phone was already in the CRM is a note on that
+    // lead, not a Sulekha lead, so it is not counted here.
+    id: "sulekha",
+    label: "Sulekha",
+    group: null,
+    items: null,
+    filters: { page: false, ad: false, campaign: false },
+    connection: null,
+    emptyState: { title: "No Sulekha leads match these filters", description: "Enquiries Sulekha sends to your Sulekha webhook URL show up here instantly." },
+  },
+  {
     id: "telecaller",
     label: "Telecaller",
     group: null,
