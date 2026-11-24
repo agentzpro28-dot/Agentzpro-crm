@@ -219,6 +219,7 @@ describe("status colours", () => {
     { name: "Mani", status: "Details send via WhatsApp", tone: "green" },
     { name: "Geetha", status: "Disqualified", tone: "red" },
     { name: "Hari", status: "Asking Time for Taking Decision", tone: "blue" },
+    { name: "Anand", status: "WhatsApp Done", tone: "green" },
   ];
 
   it("colours every status's Status box in the table to match STATUS_HIGHLIGHTS; the Label box and the dropdown's options stay plain", async () => {
@@ -234,7 +235,7 @@ describe("status colours", () => {
     for (const option of screen.getAllByRole("option")) expect(option).not.toHaveAttribute("data-tone");
   }, 10000);
 
-  // Cycles all 14 statuses in one test, so it gets more headroom than the 5s default.
+  // Cycles all 15 statuses in one test, so it gets more headroom than the 5s default.
   it("uses the same colours in the drawer's status banner as the table, for every status", async () => {
     stubApi({ leads: [lead(LEAD_1, "Kumar")], pages: {}, openTask: null });
     await renderPage();
@@ -1240,7 +1241,7 @@ describe("second status", () => {
     fireEvent.click(secondPicker(drawer));
     const options = within(screen.getByRole("listbox", { name: "Change second status for Kumar" })).getAllByRole("option").map((option) => option.textContent);
     expect(options[0]).toBe("None");
-    expect(options).toHaveLength(14);
+    expect(options).toHaveLength(15);
     expect(options).not.toContain("Site visit done");
     fireEvent.click(screen.getByRole("option", { name: "Disqualified" }));
     await waitFor(() => expect(patches(calls)).toEqual([{ secondStatus: "Disqualified" }]));

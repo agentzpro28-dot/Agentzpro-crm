@@ -98,7 +98,7 @@ export function labelDonutData(byLabel: DashboardStats["byLabel"]): DonutDatum[]
 }
 
 /**
- * Ranked status bars: all 13 statuses every time, biggest first (0-lead statuses at the bottom), each
+ * Ranked status bars: all 15 statuses every time, biggest first (0-lead statuses at the bottom), each
  * with its count and share. Plain HTML rather than an SVG chart so long status names wrap instead of
  * being cut off. Each status keeps the same colour whatever its rank, so a colour means the same
  * status after a filter change. The colour is the status's /leads colour (STATUS_HIGHLIGHTS); a status
