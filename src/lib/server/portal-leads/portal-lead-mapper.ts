@@ -7,7 +7,8 @@ import { PORTALS, type PortalId } from "@/lib/portal-leads/portals";
  * Reads one enquiry a real-estate portal (99acres today) sends to a company's portal webhook URL. Indian portals do
  * not agree on a format: the same lead may arrive as POST JSON, as an ordinary form post or as GET URL parameters,
  * under names like "cust_name", "contact_no" or "mobile". The URL parameters and the body are merged (a body value wins)
- * and each lead field is taken from the first name present in its fallback list.
+ * and each lead field is taken from the first name present in its fallback list (capitals, spaces, underscores and
+ * hyphens in a name do not matter).
  *
  * Answers are stored in Meta's field_data shape ([{ name, values }]) and the contact fields under Meta's keys
  * (full_name, first_name, last_name, email, phone_number), so public.extract_meta_lead_contact_fields fills
@@ -26,9 +27,10 @@ export const MAX_PORTAL_REF_LENGTH = 200;
 export const PORTAL_MAPPING_FIELDS = ["full_name", "phone", "email", "project_name", "city", "query", "external_lead_id"] as const;
 type MappingField = (typeof PORTAL_MAPPING_FIELDS)[number];
 
-// For each lead field, the names that may fill it, best first (compared case-insensitively, with spaces and hyphens read
-// as "_"). The spec's lists, then a few obvious variants. Only the best one present with an answer is used.
-const DEFAULT_ALIASES: Record<MappingField, readonly string[]> = {
+// For each lead field, the names that may fill it, best first. Names are compared with capitals, spaces, underscores and
+// hyphens ignored (normalizeKey), so "Mobile No", "mobile_no", "MobileNo" and "MOBILE-NO" are the same name. The spec's
+// lists, then a few obvious variants. Only the best one present with an answer is used.
+const ALIAS_NAMES: Record<MappingField, readonly string[]> = {
   full_name: ["name", "full_name", "cust_name", "customer_name", "lead_name", "sender_name", "buyer_name", "fullname"],
   phone: ["mobile", "phone", "contact_no", "mobile_no", "phone_number", "sender_mobile", "contact", "mobile_number", "phone_no", "contact_number", "cust_mobile", "customer_mobile"],
   email: ["email", "email_id", "cust_email", "sender_email", "email_address", "customer_email"],
@@ -37,12 +39,19 @@ const DEFAULT_ALIASES: Record<MappingField, readonly string[]> = {
   query: ["query", "remark", "remarks", "message", "comments", "description", "requirement"],
   external_lead_id: ["lead_id", "inquiry_id", "enquiry_id", "response_id", "id"],
 };
+const DEFAULT_ALIASES = normalizedAliases(ALIAS_NAMES);
+
+function normalizedAliases(lists: Record<MappingField, readonly string[]>): Record<MappingField, readonly string[]> {
+  const result = { ...lists };
+  for (const field of PORTAL_MAPPING_FIELDS) result[field] = [...new Set(lists[field].map(normalizeKey))];
+  return result;
+}
 
 // Where each lead field is stored in field_data. first_name / last_name are used only when no full name is sent.
 const STORED_AS: Record<Exclude<MappingField, "external_lead_id">, string> = {
   full_name: "full_name", phone: "phone_number", email: "email", project_name: "project_name", city: "city", query: "query",
 };
-const NAME_PARTS: ReadonlyArray<readonly [string, readonly string[]]> = [["first_name", ["first_name", "firstname"]], ["last_name", ["last_name", "lastname"]]];
+const NAME_PARTS: ReadonlyArray<readonly [string, readonly string[]]> = [["first_name", [normalizeKey("first_name")]], ["last_name", [normalizeKey("last_name")]]];
 // A field that was not picked keeps its own name, unless that name is one of these: it would then be read as the lead's
 // name / email / phone (or shadow the project, city or query), so it is prefixed, as the other lead mappers do.
 const RESERVED_NAMES = new Set(["full_name", "first_name", "last_name", "email", "phone_number", "project_name", "city", "query"]);
@@ -217,8 +226,9 @@ function emptyRecord(): Record<string, unknown> {
   return Object.create(null) as Record<string, unknown>;
 }
 
+/** A field name with capitals, spaces, underscores and hyphens ignored: "Mobile No", "mobile_no", "MobileNo" → "mobileno". */
 function normalizeKey(key: string): string {
-  return key.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return key.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
 
 /** Every answer as text: numbers and true/false as written, a list as several answers, a nested object as JSON text. */
