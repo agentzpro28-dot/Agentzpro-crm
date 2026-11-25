@@ -1,6 +1,6 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LEADS_CHANGED_EVENT, TASKS_CHANGED_EVENT, TaskAlertsProvider, TaskBell, useLiveStreamUp } from "@/components/task-bell";
+import { LEADS_CHANGED_EVENT, LeadAlertsNudge, TASKS_CHANGED_EVENT, TaskAlertsProvider, TaskBell, useLiveStreamUp } from "@/components/task-bell";
 import type { TaskNotification } from "@/lib/server/task-notification-service";
 
 class FakeEventSource {
@@ -164,6 +164,50 @@ describe("Turn on notifications line beside the bell", () => {
   });
 });
 
+describe("new-lead alerts line on /leads", () => {
+  const LINE = "Turn on notifications to get new-lead alerts";
+  async function renderLine(permission: NotificationPermission, subscribed = false) {
+    vi.stubEnv("NEXT_PUBLIC_VAPID_PUBLIC_KEY", "dGVzdC1rZXk");
+    vi.stubGlobal("PushManager", class {});
+    const requestPermission = vi.fn(async () => "denied" as NotificationPermission);
+    vi.stubGlobal("Notification", { permission, requestPermission });
+    const registration = { pushManager: { getSubscription: async () => (subscribed ? { toJSON: () => ({ endpoint: "https://fcm.googleapis.com/x", keys: {} }) } : null) } };
+    Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register: async () => registration, ready: Promise.resolve(registration) } });
+    vi.resetModules();
+    const bell = await import("@/components/task-bell");
+    render(<bell.TaskAlertsProvider><bell.LeadAlertsNudge /></bell.TaskAlertsProvider>);
+    await settle();
+    return { requestPermission };
+  }
+  afterEach(() => { vi.unstubAllEnvs(); Reflect.deleteProperty(navigator, "serviceWorker"); });
+
+  it("offers to turn notifications on, using the same browser switch as the Tasks bell", async () => {
+    const { requestPermission } = await renderLine("default");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: LINE })); await vi.advanceTimersByTimeAsync(0); });
+    expect(requestPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it("says how to unblock them when the browser has blocked notifications", async () => {
+    await renderLine("denied");
+    expect(screen.queryByRole("button", { name: LINE })).not.toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("Notifications are blocked. Allow them in the site settings to get new-lead alerts.");
+  });
+
+  it("shows nothing once notifications are on", async () => {
+    await renderLine("granted", true);
+    expect(screen.queryByRole("button", { name: LINE })).not.toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  });
+
+  it("shows nothing outside the shell or where notifications are not supported", async () => {
+    render(<LeadAlertsNudge />);
+    expect(screen.queryByRole("button", { name: LINE })).not.toBeInTheDocument();
+    render(<TaskAlertsProvider><LeadAlertsNudge /></TaskAlertsProvider>);
+    await settle();
+    expect(screen.queryByRole("button", { name: LINE })).not.toBeInTheDocument();
+  });
+});
+
 describe("window events for the Tasks and Leads pages", () => {
   function listen() {
     const fired = { tasks: 0, leads: 0 };
@@ -173,6 +217,27 @@ describe("window events for the Tasks and Leads pages", () => {
     window.addEventListener(LEADS_CHANGED_EVENT, onLeads);
     return { fired, stop: () => { window.removeEventListener(TASKS_CHANGED_EVENT, onTasks); window.removeEventListener(LEADS_CHANGED_EVENT, onLeads); } };
   }
+
+  it("in the background tells only the lead pop-up: the Tasks page and the bell wait for the return", async () => {
+    render(<TaskAlertsProvider><main /></TaskAlertsProvider>);
+    await settle();
+    const { fired, stop } = listen();
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    const notificationsBefore = fetchMock.mock.calls.filter(([url]) => url === "/api/notifications").length;
+    act(() => stream().emit("change"));
+    act(() => stream().emit("task_reminder"));
+    await settle();
+    expect(fired).toEqual({ tasks: 0, leads: 1 });
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/notifications").length).toBe(notificationsBefore);
+    // Back in view: one catch-up for each.
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    await settle();
+    expect(fired).toEqual({ tasks: 1, leads: 2 });
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/notifications").length).toBe(notificationsBefore + 1);
+    stop();
+  });
 
   it("tells both pages when the stream says a lead changed", async () => {
     render(<TaskAlertsProvider><main /></TaskAlertsProvider>);
@@ -269,18 +334,48 @@ describe("live stream health for /leads", () => {
     leads.stop();
   });
 
-  it("goes down while the tab is hidden and stays down after return until the new stream says live", async () => {
+  it("keeps the stream open and up while the tab is in the background, so lead signals still arrive there", async () => {
+    const isUp = await mount();
+    sayLive();
+    const leads = countLeadEvents();
+    const closed = vi.spyOn(stream(), "close");
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(closed).not.toHaveBeenCalled();
+    expect(isUp()).toBe(true);
+    act(() => stream().emit("change"));
+    expect(leads.count()).toBe(1);
+    // Back in view: the same connection (no second one), and the usual catch-up for the /leads bar.
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(isUp()).toBe(true);
+    expect(leads.count()).toBe(2);
+    leads.stop();
+    await settle();
+  });
+
+  it("reconnects on return when the browser gave up on the stream while the tab was in the background", async () => {
     const isUp = await mount();
     sayLive();
     Object.defineProperty(document, "hidden", { configurable: true, value: true });
     act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    // The browser gives up (CLOSED) after an error it cannot recover from.
+    Object.assign(stream(), { readyState: 2 });
+    act(() => stream().fail());
     expect(isUp()).toBe(false);
     Object.defineProperty(document, "hidden", { configurable: true, value: false });
     act(() => { document.dispatchEvent(new Event("visibilitychange")); });
-    expect(isUp()).toBe(false);
+    expect(FakeEventSource.instances).toHaveLength(2);
     sayLive();
     expect(isUp()).toBe(true);
     await settle();
+  });
+
+  it("opens the stream even in a tab that starts in the background", async () => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    await mount();
+    expect(FakeEventSource.instances).toHaveLength(1);
   });
 
   it("counts a stream that stays quiet longer than a healthy reconnect cycle as down", async () => {

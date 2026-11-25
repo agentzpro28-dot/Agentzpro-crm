@@ -10,6 +10,7 @@ import { RowDropdown } from "@/features/leads/row-dropdown";
 import { readError, useLeadFilters } from "@/features/leads/use-lead-filters";
 import { useLeadSources } from "@/features/leads/use-lead-sources";
 import { useNewLeadsCount, type NewLeadsSnapshot } from "@/features/leads/use-new-leads-count";
+import { LeadAlertsNudge } from "@/components/task-bell";
 
 // While the connection checks load, the Source filter offers only Telecaller (always available), so no option ever
 // appears and then disappears.
@@ -214,6 +215,7 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
     </>} />
     {error ? <div className="mvp-inline-error">{error}</div> : null}
     <LeadActiveFilters filters={filters} />
+    <LeadAlertsNudge />
     {newLeadCount > 0 ? <div className="notice notice--info mvp-new-leads-banner" role="status">
       <BellRing size={18} aria-hidden="true" />
       <div><strong>{newLeadCount > 99 ? "99+" : newLeadCount} new lead{newLeadCount === 1 ? "" : "s"} arrived.</strong></div>
