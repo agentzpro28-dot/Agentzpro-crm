@@ -6,7 +6,8 @@ import { MAGICBRICKS_DEFAULT_LEAD_NAME, MAGICBRICKS_LABEL } from "@/lib/magicbri
 /**
  * Reads one enquiry MagicBricks sends to a company's MagicBricks webhook URL. MagicBricks may send it as POST JSON, as
  * an ordinary form post or as GET URL parameters. The URL parameters and the body are merged ({ ...query, ...body }: a
- * body value wins) and each lead field is taken from the first name present in its list below.
+ * body value wins) and each lead field is taken from the first name present in its list below (capitals, spaces,
+ * underscores and hyphens in a name do not matter).
  *
  * Answers are stored in lead_data's field_data shape ([{ name, values }]) under the keys lead_data's contact trigger
  * reads (full_name, email, phone_number), so name / email / phone, phone cleanup (+91), same-phone matching, search and
@@ -34,10 +35,11 @@ export const MAGICBRICKS_PAYLOAD_MESSAGES = {
 export const MAGICBRICKS_MAPPING_FIELDS = ["full_name", "phone", "email", "project_name", "city", "query", "external_lead_id"] as const;
 type MappingField = (typeof MAGICBRICKS_MAPPING_FIELDS)[number];
 
-// For each lead field, the MagicBricks names that may fill it, best first (compared case-insensitively, with spaces and
-// hyphens read as "_"). Only the best one present with an answer is used. "pid" is MagicBricks's property id, which many
-// buyers share: it fills the project only when no project name is sent, and is never the enquiry id.
-const DEFAULT_ALIASES: Record<MappingField, readonly string[]> = {
+// For each lead field, the MagicBricks names that may fill it, best first. Names are compared with capitals, spaces,
+// underscores and hyphens ignored (normalizeKey), so "Mobile No", "mobile_no", "MobileNo" and "MOBILE-NO" are the same
+// name. Only the best one present with an answer is used. "pid" is MagicBricks's property id, which many buyers share:
+// it fills the project only when no project name is sent, and is never the enquiry id.
+const ALIAS_NAMES: Record<MappingField, readonly string[]> = {
   full_name: ["name", "full_name", "cust_name", "customer_name", "lead_name", "buyer_name", "sender_name"],
   phone: ["mobile", "phone", "contact_no", "mobile_no", "phone_number", "sender_mobile", "contact"],
   email: ["email", "email_id", "cust_email", "sender_email"],
@@ -46,6 +48,13 @@ const DEFAULT_ALIASES: Record<MappingField, readonly string[]> = {
   query: ["remark", "remarks", "query", "message", "comments", "description", "requirement"],
   external_lead_id: ["lead_id", "inquiry_id", "response_id", "id"],
 };
+const DEFAULT_ALIASES = normalizedAliases(ALIAS_NAMES);
+
+function normalizedAliases(lists: Record<MappingField, readonly string[]>): Record<MappingField, readonly string[]> {
+  const result = { ...lists };
+  for (const field of MAGICBRICKS_MAPPING_FIELDS) result[field] = [...new Set(lists[field].map(normalizeKey))];
+  return result;
+}
 
 // Where each lead field is stored in field_data.
 const STORED_AS: Record<Exclude<MappingField, "external_lead_id">, string> = {
@@ -212,8 +221,9 @@ function emptyRecord(): Record<string, unknown> {
   return Object.create(null) as Record<string, unknown>;
 }
 
+/** A field name with capitals, spaces, underscores and hyphens ignored: "Mobile No", "mobile_no", "MobileNo" → "mobileno". */
 function normalizeKey(key: string): string {
-  return key.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return key.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
 
 /** Every answer as text: numbers and true/false as written, a list as several answers, a nested object as JSON text. */
