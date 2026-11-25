@@ -112,6 +112,19 @@ describe("mapSulekhaLead: tolerant of what a sender really sends", () => {
     expect((await mapSulekhaLead(post(JSON.stringify({ mobile: "9876543210", id: "TOP-1" })))).leadRef).toBe("TOP-1");
   });
 
+  it("ignores capitals, spaces, hyphens and underscores in field names", async () => {
+    const lead = await mapSulekhaLead(post(JSON.stringify({ customerName: "Kavya", MobileNo: "9000000004", EMAIL_ID: "k@x.com", ServiceName: "Painters", "Area-Name": "Adyar", LeadId: "SUL-L9" })));
+    expect(lead.leadRef).toBe("SUL-L9");
+    expect(answers(lead)).toEqual({ full_name: ["Kavya"], phone_number: ["9000000004"], email: ["k@x.com"], service_name: ["Painters"], city: ["Adyar"] });
+    expect(answers(await mapSulekhaLead(get({ "CONTACT PERSON": "D", customerMobile: "9000000005" })))).toEqual({ full_name: ["D"], phone_number: ["9000000005"] });
+  });
+
+  it("treats a nested mobileno and a top-level mobile_no as the same name: the top-level one wins, the nested one stays in the raw copy", async () => {
+    const lead = await mapSulekhaLead(post(JSON.stringify({ mobile_no: "9876543210", customer: { mobileno: "9000000000", name: "N" } })));
+    expect(answers(lead)).toEqual({ phone_number: ["9876543210"], full_name: ["N"] });
+    expect(lead.rawPayload).toMatchObject({ customer: { mobileno: "9000000000" } });
+  });
+
   it("falls back to form data when the body is JSON but not an object (a bare number)", async () => {
     await expect(payloadError(post("12345", "application/json"))).resolves.toBe(SULEKHA_PAYLOAD_MESSAGES.notJsonObject);
   });
