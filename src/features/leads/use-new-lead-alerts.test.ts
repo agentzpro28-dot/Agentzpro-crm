@@ -24,7 +24,8 @@ const serviceWorker = {
 let replies: Array<() => Response> = [];
 const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => (replies.shift() ?? (() => json({ count: 0, newest: null })))());
 function json(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status }); }
-const lead = (id: string, name = "Ravi", source = "Facebook") => ({ id, name, source });
+/** A lead as /api/leads/arrivals returns it; "lead-N" was saved N seconds after 10:00, microseconds kept. */
+const lead = (id: string, name = "Ravi", source = "Facebook", savedAt = `2026-11-25T10:00:${String(Number(id.replace(/\D/g, "")) || 0).padStart(2, "0")}.123456+00:00`) => ({ id, name, source, savedAt });
 
 /** BroadcastChannel between "tabs": a message reaches every other open channel of the same name, never the sender. */
 class FakeChannel {
@@ -154,6 +155,44 @@ describe("new lead pop-up while the CRM tab is in the background", () => {
     await wait(CHECK_MS);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(registration.showNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("still announces a new lead that arrives after a lead was deleted in the background", async () => {
+    mount();
+    setHidden(true);
+    replies.push(
+      () => json({ count: 1, newest: lead("lead-1") }),
+      () => json({ count: 0, newest: null }),
+      () => json({ count: 1, newest: lead("lead-2", "Priya") }),
+    );
+    for (let index = 0; index < 3; index += 1) { insertSignal(); await wait(CHECK_MS); }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(registration.showNotification).toHaveBeenCalledTimes(2);
+    expect(visible()).toEqual([expect.objectContaining({ title: "New lead: Priya", tag: "new-lead:lead-2" })]);
+  });
+
+  it("does not announce an older lead again when the newest one is deleted", async () => {
+    mount();
+    setHidden(true);
+    replies.push(() => json({ count: 2, newest: lead("lead-2") }), () => json({ count: 1, newest: lead("lead-1") }));
+    insertSignal();
+    await wait(CHECK_MS);
+    insertSignal();
+    await wait(CHECK_MS);
+    expect(registration.showNotification).toHaveBeenCalledTimes(1);
+    expect(visible()).toEqual([expect.objectContaining({ title: "2 new leads arrived", tag: "new-lead:lead-2" })]);
+  });
+
+  it("shows nothing for a reply without a readable save time", async () => {
+    mount();
+    setHidden(true);
+    replies.push(() => json({ count: 1, newest: { id: "lead-1", name: "Ravi", source: "Facebook" } }), () => json({ count: 1, newest: { ...lead("lead-1"), savedAt: "yesterday" } }));
+    insertSignal();
+    await wait(CHECK_MS);
+    insertSignal();
+    await wait(CHECK_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(shown).toHaveLength(0);
   });
 
   it("replaces the first pop-up with the count when a second lead arrives", async () => {

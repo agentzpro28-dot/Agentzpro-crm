@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { timestampToMicros } from "@/lib/lead-change-signal";
 import { LEADS_CHANGED_EVENT } from "@/lib/live-events";
 
 /** Same pause as the /leads bar: several lead writes in a burst become one check. */
@@ -20,7 +21,7 @@ export const PRESENCE_CHANNEL = "agentz:crm-presence";
 /** How long a background tab waits for another CRM tab to say it is on screen (a hidden tab's timers run late anyway). */
 export const PRESENCE_WAIT_MS = 400;
 
-interface Arrivals { count: number; newest: { id: string; name: string; source: string } | null }
+interface Arrivals { count: number; newest: { id: string; name: string; source: string; savedUs: number } | null }
 
 /** The pop-up's text: "New lead: Ravi" / "Facebook" for one lead, "3 new leads arrived" / "Latest: Ravi (Facebook)". */
 export function newLeadAlertText(count: number, newest: { name: string; source: string }): { title: string; body: string } {
@@ -33,8 +34,9 @@ function readArrivals(value: unknown): Arrivals | null {
   const { count, newest } = (value && typeof value === "object" ? value : {}) as { count?: unknown; newest?: unknown };
   if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null;
   if (newest === null) return { count, newest: null };
-  const { id, name, source } = (newest && typeof newest === "object" ? newest : {}) as { id?: unknown; name?: unknown; source?: unknown };
-  return typeof id === "string" && typeof name === "string" && typeof source === "string" ? { count, newest: { id, name, source } } : null;
+  const { id, name, source, savedAt } = (newest && typeof newest === "object" ? newest : {}) as { id?: unknown; name?: unknown; source?: unknown; savedAt?: unknown };
+  const savedUs = typeof savedAt === "string" ? timestampToMicros(savedAt) : null;
+  return typeof id === "string" && typeof name === "string" && typeof source === "string" && savedUs !== null ? { count, newest: { id, name, source, savedUs } } : null;
 }
 
 function notificationsAllowed(): boolean {
@@ -57,8 +59,8 @@ async function serviceWorkerRegistration(): Promise<ServiceWorkerRegistration | 
  *   stream live again) is followed after a short pause by one check: how many of the company's leads were saved since
  *   the tab went into the background, and the newest one. An update (status, label, assignee) can never add a lead and
  *   sends nothing. While the live signal is down, a check runs once a minute instead.
- * - A pop-up appears only when the count went up since the last one, so a delete or a repeated signal shows nothing
- *   new. Its tag is the newest lead's id, so several background CRM tabs show one pop-up, not one each. A click opens
+ * - A pop-up appears only for a lead saved after the last lead announced in this background spell (exact database
+ *   save times, not counts): a repeated signal or a delete shows nothing, and a delete never hides the next new lead. Its tag is the newest lead's id, so several background CRM tabs show one pop-up, not one each. A click opens
  *   /leads (sw.js); for a tab the worker does not control, sw.js asks the tab to open it (the message below).
  * - Only while the member is away from the CRM: if another CRM tab of this browser is on screen (it answers on a
  *   BroadcastChannel), no pop-up is shown, since the member is already looking at the CRM.
@@ -71,7 +73,8 @@ export function useNewLeadAlerts(isStreamUp: () => boolean): void {
     let hiddenAt: number | null = document.hidden ? Date.now() : null;
     // Changes every time the tab is hidden or shown, so a reply for an earlier background spell is never shown.
     let spell = 0;
-    let announced = 0;
+    // Save time (µs) of the newest lead announced since the tab went into the background; 0 = none yet.
+    let lastAnnouncedUs = 0;
     let stopped = false;
     let disposed = false;
     let inFlight = false;
@@ -151,9 +154,9 @@ export function useNewLeadAlerts(isStreamUp: () => boolean): void {
         if (response.status === 401) { stopped = true; return; }
         if (!response.ok) return;
         const arrivals = readArrivals(await response.json());
-        if (!arrivals || !arrivals.newest || mySpell !== spell || !canAlert() || arrivals.count <= announced) return;
-        // Counted either way, so a lead seen in another CRM tab is never announced later.
-        announced = arrivals.count;
+        if (!arrivals || !arrivals.newest || mySpell !== spell || !canAlert() || arrivals.newest.savedUs <= lastAnnouncedUs) return;
+        // Marked either way, so a lead seen in another CRM tab is never announced later.
+        lastAnnouncedUs = arrivals.newest.savedUs;
         if (await anotherTabOnScreen()) return;
         if (mySpell !== spell || !canAlert()) return;
         await show(arrivals.count, arrivals.newest);
@@ -176,7 +179,7 @@ export function useNewLeadAlerts(isStreamUp: () => boolean): void {
     };
     const onVisibility = () => {
       spell += 1;
-      announced = 0;
+      lastAnnouncedUs = 0;
       clearTimeout(debounce);
       controller?.abort();
       queued = false;
