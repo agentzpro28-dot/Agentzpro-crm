@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { timestampToMicros } from "@/lib/lead-change-signal";
-import { LEADS_CHANGED_EVENT } from "@/lib/live-events";
+import { LEADS_CHANGED_EVENT, SHOW_NEW_LEADS_EVENT } from "@/lib/live-events";
 
 /** Same pause as the /leads bar: several lead writes in a burst become one check. */
 const CHANGE_DEBOUNCE_MS = 750;
@@ -16,6 +16,10 @@ export const NEW_LEAD_TAG_PREFIX = "new-lead:";
 const NEW_LEAD_URL = "/leads";
 /** The message sw.js sends when it cannot open the page itself (a tab it does not control). */
 export const SW_OPEN_MESSAGE = "agentz:open";
+/** The message sw.js sends to the /leads tab it brought forward for a click on a "New lead" pop-up. */
+export const SW_SHOW_NEW_LEADS_MESSAGE = "agentz:show-new-leads";
+/** Only a /leads tab on screen keeps the pop-up away: it shows the new-leads bar. Other CRM pages show no new lead. */
+const LEADS_PATH = "/leads";
 /** CRM tabs of this browser ask each other here whether one of them is on screen. */
 export const PRESENCE_CHANNEL = "agentz:crm-presence";
 /** How long a background tab waits for another CRM tab to say it is on screen (a hidden tab's timers run late anyway). */
@@ -62,8 +66,11 @@ async function serviceWorkerRegistration(): Promise<ServiceWorkerRegistration | 
  * - A pop-up appears only for a lead saved after the last lead announced in this background spell (exact database
  *   save times, not counts): a repeated signal or a delete shows nothing, and a delete never hides the next new lead. Its tag is the newest lead's id, so several background CRM tabs show one pop-up, not one each. A click opens
  *   /leads (sw.js); for a tab the worker does not control, sw.js asks the tab to open it (the message below).
- * - Only while the member is away from the CRM: if another CRM tab of this browser is on screen (it answers on a
- *   BroadcastChannel), no pop-up is shown, since the member is already looking at the CRM.
+ * - Not while the member is looking at /leads: if a /leads tab of this browser is on screen (it answers on a
+ *   BroadcastChannel), no pop-up is shown, since its bar already says so. A member on /tasks, /dashboard or any other
+ *   page gets the pop-up, because those pages show no new lead.
+ * - A click never reloads a tab the member may be typing in: an open /leads tab is brought forward and its table
+ *   reloads with the new leads on top (like the bar's Show); with no /leads tab, /leads opens in a new tab (sw.js).
  * - When the tab comes back into view, the count starts over and this tab's lead pop-ups close: the bar takes over.
  * - Best effort: a failed check shows nothing; a signed-out session (401) stops checking until the next page load.
  *   Background checks never renew the idle-logout clock.
@@ -90,7 +97,7 @@ export function useNewLeadAlerts(isStreamUp: () => boolean): void {
       channel.onmessage = (event: MessageEvent<unknown>) => {
         const { type, id } = (event.data && typeof event.data === "object" ? event.data : {}) as { type?: unknown; id?: unknown };
         if (typeof id !== "string") return;
-        if (type === "ask" && !document.hidden) channel.postMessage({ type: "on-screen", id });
+        if (type === "ask" && !document.hidden && window.location.pathname === LEADS_PATH) channel.postMessage({ type: "on-screen", id });
         if (type === "on-screen") waiting.get(id)?.();
       };
     }
@@ -131,13 +138,15 @@ export function useNewLeadAlerts(isStreamUp: () => boolean): void {
         return;
       }
       const notification = new Notification(title, { body, tag, icon: "/logo-icon.png", requireInteraction: true });
+      // Same rule as sw.js: never reload a page the member may be typing in.
       notification.onclick = () => {
         notification.close();
-        window.focus();
-        // A full load on purpose: the router does nothing when the tab is already on /leads, and the table must reload
-        // to show the new lead on top.
-        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-        window.location.assign(NEW_LEAD_URL);
+        if (window.location.pathname === LEADS_PATH) {
+          window.focus();
+          window.dispatchEvent(new Event(SHOW_NEW_LEADS_EVENT));
+          return;
+        }
+        window.open(NEW_LEAD_URL, "_blank");
       };
       pageNotifications.push(notification);
     };
@@ -187,9 +196,11 @@ export function useNewLeadAlerts(isStreamUp: () => boolean): void {
       hiddenAt = null;
       void closeLeadNotifications();
     };
-    // sw.js could not open /leads in a tab it does not control: it asks the tab, which opens it itself.
+    // sw.js brought this /leads tab forward for a "New lead" click: the page reloads its table (SHOW_NEW_LEADS_EVENT).
+    // Or, for a task reminder, it could not open the page in a tab it does not control: the tab opens it itself.
     const onWorkerMessage = (event: MessageEvent<unknown>) => {
       const { type, url } = (event.data && typeof event.data === "object" ? event.data : {}) as { type?: unknown; url?: unknown };
+      if (type === SW_SHOW_NEW_LEADS_MESSAGE) { window.dispatchEvent(new Event(SHOW_NEW_LEADS_EVENT)); return; }
       if (type !== SW_OPEN_MESSAGE || typeof url !== "string" || !url.startsWith("/") || url.startsWith("//")) return;
       // A full load on purpose, as for the click above: the page must load fresh to show the new lead.
       window.location.assign(url);

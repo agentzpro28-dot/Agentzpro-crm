@@ -5,6 +5,7 @@ import { displayValue } from "@/components/ui";
 import { LEAD_STATUSES } from "@/features/leads/lead-options";
 import { LeadsPageClient } from "@/features/leads/leads-page-client";
 import { LEADS_CHANGED_EVENT } from "@/components/task-bell";
+import { SHOW_NEW_LEADS_EVENT } from "@/lib/live-events";
 
 // The Source filter's connection checks (useLeadSources). By default the company uses every source.
 const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn(), housing: vi.fn(), sulekha: vi.fn() }));
@@ -1080,6 +1081,17 @@ describe("new leads arrived bar", () => {
     sent.newCountReply = { status: 200, count: 0 };
     fireEvent.click(screen.getByRole("button", { name: "Show" }));
     expect(screen.queryByText(/new leads? arrived/)).not.toBeInTheDocument();
+    await waitFor(() => expect(sent.query).toHaveLength(2));
+    expect(sent.query[1]).toEqual(sent.query[0]);
+    await waitFor(() => expect(sent.filterLoads).toBe(2));
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+  });
+
+  it("a click on a New lead pop-up (this tab brought forward) does exactly what Show does, without reloading the page", async () => {
+    const sent = stubLeadApi([LEAD]);
+    await renderLeadsPage(sent);
+    await waitFor(() => expect(sent.filterLoads).toBe(1));
+    act(() => { window.dispatchEvent(new Event(SHOW_NEW_LEADS_EVENT)); });
     await waitFor(() => expect(sent.query).toHaveLength(2));
     expect(sent.query[1]).toEqual(sent.query[0]);
     await waitFor(() => expect(sent.filterLoads).toBe(2));
