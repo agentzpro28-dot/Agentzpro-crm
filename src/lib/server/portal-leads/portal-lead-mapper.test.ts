@@ -35,9 +35,13 @@ describe("mapPortalLead", () => {
     expect(lead.rawPayload).toEqual({ name: "From Body", phone: "9876543210", city: "Pune" });
   });
 
-  it("matches names case-insensitively, with spaces and hyphens read as _", () => {
+  it("matches names with capitals, spaces, hyphens and underscores ignored", () => {
     const lead = mapPortalLead("99acres", post({ "Customer Name": "Meena", "Mobile-No": "9000000001", "Email ID": "m@example.com" }));
     expect(fields(lead)).toEqual({ full_name: ["Meena"], phone_number: ["9000000001"], email: ["m@example.com"] });
+    const joined = mapPortalLead("99acres", post({ customerName: "Ravi", MobileNo: "9000000002", EMAIL_ID: "r@example.com", ProjectName: "Sea View", LeadId: "L-9", Remarks: "Call" }));
+    expect(joined.leadRef).toBe("L-9");
+    expect(fields(joined)).toEqual({ full_name: ["Ravi"], phone_number: ["9000000002"], email: ["r@example.com"], project_name: ["Sea View"], query: ["Call"] });
+    expect(fields(mapPortalLead("99acres", post({ FirstName: "Anu", LAST_NAME: "R", "mobile no": "9000000003" })))).toEqual({ first_name: ["Anu"], last_name: ["R"], phone_number: ["9000000003"] });
   });
 
   it("uses the best name present and keeps the rest as form answers, prefixing names that would shadow a contact field", () => {
