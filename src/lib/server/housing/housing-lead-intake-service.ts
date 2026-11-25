@@ -12,9 +12,9 @@ export const HOUSING_WEBHOOK_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 /**
  * What the Housing.com webhook answers.
  *   200 "Lead received"  saved (`duplicate`: already saved, or added as a note to the lead with this phone).
- *   200 "Received"       the raw copy is saved but no lead could be read from it (no mobile/email, unknown format). It
- *                        is listed under Failed requests in the card and kept for support. Not a 4XX on purpose: a
- *                        portal may switch a webhook off after repeated errors.
+ *   200 "Received"       the raw copy is saved but no lead could be read from it (no mobile/email, unknown format);
+ *                        `reason` says why. It is listed under Failed requests in the card and kept for support. Not a
+ *                        4XX on purpose: a portal may switch a webhook off after repeated errors.
  *   200 "Webhook ready"  an empty URL check.
  *   404 / 413            a wrong, replaced or expired URL / a body over 64 KB: never accepted as sent.
  *   429                  too many leads this minute (try again after `retryAfterSeconds`).
@@ -22,7 +22,7 @@ export const HOUSING_WEBHOOK_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
  */
 export type HousingIntakeResult =
   | { status: 200; message: "Lead received"; duplicate: boolean; outcome: HousingLeadOutcome; leadId: string }
-  | { status: 200; message: "Received"; accepted: false }
+  | { status: 200; message: "Received"; accepted: false; reason: string }
   | { status: 200; message: "Webhook ready" }
   | { status: 404 | 413 | 500; message: string }
   | { status: 429; message: string; retryAfterSeconds: number };
@@ -166,7 +166,7 @@ export class HousingLeadIntakeService {
 async function notReadable(logId: string, tenantId: string, message: string): Promise<HousingIntakeResult> {
   log("NOT_READABLE", tenantId);
   await markFailed(logId, tenantId, message);
-  return { status: 200, message: "Received", accepted: false };
+  return { status: 200, message: "Received", accepted: false, reason: message };
 }
 
 /**
