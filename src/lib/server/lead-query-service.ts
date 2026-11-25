@@ -135,7 +135,8 @@ export async function countNewLeadsOnFirstPage(context: TenantRequestContext, re
 }
 
 /** The newest lead saved in a window, for the background "New lead" pop-up. */
-export interface LeadArrivals { count: number; newest: { id: string; name: string; source: string } | null }
+/** `savedAt` is the newest lead's created_at exactly as the database wrote it (microseconds kept). */
+export interface LeadArrivals { count: number; newest: { id: string; name: string; source: string; savedAt: string } | null }
 
 /**
  * How many of the company's leads were saved after `since`, and the newest of them, for the pop-up a CRM tab shows
@@ -145,20 +146,22 @@ export interface LeadArrivals { count: number; newest: { id: string; name: strin
  */
 export async function countLeadsSavedSince(context: TenantRequestContext, since: string): Promise<LeadArrivals> {
   const { data, error, count } = await getSupabaseAdminClient().from("lead_data")
-    .select("id,lead_name,lead_source,lead_platform", { count: "exact" })
+    .select("id,lead_name,lead_source,lead_platform,created_at", { count: "exact" })
     .eq("tenant_id", context.tenantId)
     .gt("created_at", since)
     .order("created_at", { ascending: false })
     .limit(1);
   if (error) throw new AppError("New leads could not be checked.", { status: 500, code: "LEAD_QUERY_FAILED" });
-  const row = (data?.[0] ?? null) as { id: unknown; lead_name: unknown; lead_source: unknown; lead_platform: unknown } | null;
+  const row = (data?.[0] ?? null) as { id: unknown; lead_name: unknown; lead_source: unknown; lead_platform: unknown; created_at: unknown } | null;
   const total = count ?? (row ? 1 : 0);
   if (!row) return { count: total, newest: null };
   const name = typeof row.lead_name === "string" && row.lead_name.trim() ? row.lead_name.trim() : "Unnamed Lead";
   // A call-in lead is shown as the telecaller's, like the table's marker; every other lead by its platform.
   const key = row.lead_source === "telecaller" ? "telecaller" : row.lead_platform;
   const source = (LEAD_SOURCES as readonly unknown[]).includes(key) ? LEAD_SOURCE_LABELS[key as LeadSource] : "New lead";
-  return { count: total, newest: { id: String(row.id), name, source } };
+  // The pop-up announces only a lead saved after the last one it announced, so it needs the exact save time.
+  if (typeof row.created_at !== "string") throw new AppError("New leads could not be checked.", { status: 500, code: "LEAD_QUERY_FAILED" });
+  return { count: total, newest: { id: String(row.id), name, source, savedAt: row.created_at } };
 }
 
 /**

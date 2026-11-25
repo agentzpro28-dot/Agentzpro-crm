@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NEW_LEAD_ALERT_POLL_MS, PRESENCE_CHANNEL, PRESENCE_WAIT_MS, newLeadAlertText, useNewLeadAlerts } from "@/features/leads/use-new-lead-alerts";
-import { LEADS_CHANGED_EVENT } from "@/lib/live-events";
+import { LEADS_CHANGED_EVENT, SHOW_NEW_LEADS_EVENT } from "@/lib/live-events";
 
 /** A shown pop-up as the service worker registration keeps it. */
 interface Shown { title: string; tag: string; body?: string; data?: unknown; closed: boolean; close: () => void }
@@ -24,7 +24,8 @@ const serviceWorker = {
 let replies: Array<() => Response> = [];
 const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () => (replies.shift() ?? (() => json({ count: 0, newest: null })))());
 function json(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status }); }
-const lead = (id: string, name = "Ravi", source = "Facebook") => ({ id, name, source });
+/** A lead as /api/leads/arrivals returns it; "lead-N" was saved N seconds after 10:00, microseconds kept. */
+const lead = (id: string, name = "Ravi", source = "Facebook", savedAt = `2026-11-25T10:00:${String(Number(id.replace(/\D/g, "")) || 0).padStart(2, "0")}.123456+00:00`) => ({ id, name, source, savedAt });
 
 /** BroadcastChannel between "tabs": a message reaches every other open channel of the same name, never the sender. */
 class FakeChannel {
@@ -76,7 +77,13 @@ beforeEach(() => {
   Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: serviceWorker });
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
 });
+/** Spies on window (location, open, focus) are put back after every test, so no test sees another's fake. */
+const windowSpies: Array<{ mockRestore: () => void }> = [];
+function spyWindow<T extends { mockRestore: () => void }>(spy: T): T { windowSpies.push(spy); return spy; }
+
 afterEach(() => {
+  for (const spy of windowSpies.splice(0)) spy.mockRestore();
+  window.history.replaceState(null, "", "/");
   vi.useRealTimers();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(navigator, "serviceWorker");
@@ -154,6 +161,44 @@ describe("new lead pop-up while the CRM tab is in the background", () => {
     await wait(CHECK_MS);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(registration.showNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("still announces a new lead that arrives after a lead was deleted in the background", async () => {
+    mount();
+    setHidden(true);
+    replies.push(
+      () => json({ count: 1, newest: lead("lead-1") }),
+      () => json({ count: 0, newest: null }),
+      () => json({ count: 1, newest: lead("lead-2", "Priya") }),
+    );
+    for (let index = 0; index < 3; index += 1) { insertSignal(); await wait(CHECK_MS); }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(registration.showNotification).toHaveBeenCalledTimes(2);
+    expect(visible()).toEqual([expect.objectContaining({ title: "New lead: Priya", tag: "new-lead:lead-2" })]);
+  });
+
+  it("does not announce an older lead again when the newest one is deleted", async () => {
+    mount();
+    setHidden(true);
+    replies.push(() => json({ count: 2, newest: lead("lead-2") }), () => json({ count: 1, newest: lead("lead-1") }));
+    insertSignal();
+    await wait(CHECK_MS);
+    insertSignal();
+    await wait(CHECK_MS);
+    expect(registration.showNotification).toHaveBeenCalledTimes(1);
+    expect(visible()).toEqual([expect.objectContaining({ title: "2 new leads arrived", tag: "new-lead:lead-2" })]);
+  });
+
+  it("shows nothing for a reply without a readable save time", async () => {
+    mount();
+    setHidden(true);
+    replies.push(() => json({ count: 1, newest: { id: "lead-1", name: "Ravi", source: "Facebook" } }), () => json({ count: 1, newest: { ...lead("lead-1"), savedAt: "yesterday" } }));
+    insertSignal();
+    await wait(CHECK_MS);
+    insertSignal();
+    await wait(CHECK_MS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(shown).toHaveLength(0);
   });
 
   it("replaces the first pop-up with the count when a second lead arrives", async () => {
@@ -247,7 +292,7 @@ describe("new lead pop-up while the CRM tab is in the background", () => {
     expect(visible()).toHaveLength(1);
   });
 
-  it("uses a plain page notification when no service worker is registered, opening /leads on click", async () => {
+  it("uses a plain page notification when no service worker is registered; a click opens /leads in a new tab", async () => {
     serviceWorker.getRegistration.mockResolvedValue(undefined as unknown as ServiceWorkerRegistration);
     const created: Array<{ title: string; options: NotificationOptions; onclick: (() => void) | null; close: () => void }> = [];
     class PageNotification {
@@ -257,25 +302,53 @@ describe("new lead pop-up while the CRM tab is in the background", () => {
       constructor(public title: string, public options: NotificationOptions) { created.push(this); }
     }
     vi.stubGlobal("Notification", PageNotification);
-    const assign = vi.fn();
-    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, assign } as Location);
-    const focus = vi.spyOn(window, "focus").mockImplementation(() => undefined);
+    window.history.replaceState(null, "", "/tasks");
+    const open = spyWindow(vi.spyOn(window, "open")).mockImplementation(() => null);
     mount();
     setHidden(true);
     replies.push(() => json({ count: 1, newest: lead("lead-1") }));
     insertSignal();
     await wait(CHECK_MS);
     expect(created).toEqual([expect.objectContaining({ title: "New lead: Ravi", options: expect.objectContaining({ tag: "new-lead:lead-1", body: "Facebook" }) })]);
+    // Never a reload of this page (the member may be typing on /tasks): /leads opens in a new tab.
     created[0].onclick?.();
-    expect(assign).toHaveBeenCalledWith("/leads");
-    expect(focus).toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith("/leads", "_blank");
     expect(created[0].close).toHaveBeenCalled();
+    serviceWorker.getRegistration.mockResolvedValue(registration as unknown as ServiceWorkerRegistration);
+  });
+
+  it("on /leads, a click on the plain page notification reloads only the table (like Show), never the page", async () => {
+    serviceWorker.getRegistration.mockResolvedValue(undefined as unknown as ServiceWorkerRegistration);
+    const created: Array<{ onclick: (() => void) | null; close: () => void }> = [];
+    class PageNotification {
+      static get permission() { return permission; }
+      onclick: (() => void) | null = null;
+      close = vi.fn();
+      constructor() { created.push(this); }
+    }
+    vi.stubGlobal("Notification", PageNotification);
+    window.history.replaceState(null, "", "/leads");
+    const open = spyWindow(vi.spyOn(window, "open")).mockImplementation(() => null);
+    const focus = spyWindow(vi.spyOn(window, "focus")).mockImplementation(() => undefined);
+    let shows = 0;
+    const onShow = () => { shows += 1; };
+    window.addEventListener(SHOW_NEW_LEADS_EVENT, onShow);
+    mount();
+    setHidden(true);
+    replies.push(() => json({ count: 1, newest: lead("lead-1") }));
+    insertSignal();
+    await wait(CHECK_MS);
+    created[0].onclick?.();
+    expect(focus).toHaveBeenCalled();
+    expect(shows).toBe(1);
+    expect(open).not.toHaveBeenCalled();
+    window.removeEventListener(SHOW_NEW_LEADS_EVENT, onShow);
     serviceWorker.getRegistration.mockResolvedValue(registration as unknown as ServiceWorkerRegistration);
   });
 
   it("opens the page the service worker asks for (a tab it does not control), and only a same-site path", async () => {
     const assign = vi.fn();
-    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, assign } as Location);
+    spyWindow(vi.spyOn(window, "location", "get")).mockReturnValue({ ...window.location, assign } as Location);
     mount();
     const send = (data: unknown) => act(() => { for (const listener of workerListeners) listener(new MessageEvent("message", { data })); });
     send({ type: "agentz:open", url: "//evil.example" });
@@ -284,6 +357,19 @@ describe("new lead pop-up while the CRM tab is in the background", () => {
     expect(assign).not.toHaveBeenCalled();
     send({ type: "agentz:open", url: "/leads" });
     expect(assign).toHaveBeenCalledWith("/leads");
+  });
+
+  it("reloads only the /leads table when sw.js brought this tab forward for a new-lead click", async () => {
+    const assign = vi.fn();
+    spyWindow(vi.spyOn(window, "location", "get")).mockReturnValue({ ...window.location, assign } as Location);
+    let shows = 0;
+    const onShow = () => { shows += 1; };
+    window.addEventListener(SHOW_NEW_LEADS_EVENT, onShow);
+    mount();
+    act(() => { for (const listener of workerListeners) listener(new MessageEvent("message", { data: { type: "agentz:show-new-leads" } })); });
+    expect(shows).toBe(1);
+    expect(assign).not.toHaveBeenCalled();
+    window.removeEventListener(SHOW_NEW_LEADS_EVENT, onShow);
   });
 
   it("shows no pop-up while another CRM tab of this browser is on screen, and never announces that lead later", async () => {
@@ -314,7 +400,8 @@ describe("new lead pop-up while the CRM tab is in the background", () => {
     second.unmount();
   });
 
-  it("answers for itself when it is on screen, so a background tab stays quiet", async () => {
+  it("answers for itself when it is on screen on /leads, so a background tab stays quiet", async () => {
+    window.history.replaceState(null, "", "/leads");
     mount();
     const asker = new FakeChannel(PRESENCE_CHANNEL);
     const answers: unknown[] = [];
@@ -326,6 +413,21 @@ describe("new lead pop-up while the CRM tab is in the background", () => {
     asker.postMessage({ type: "ask", id: "q-2" });
     await wait(0);
     expect(answers).toHaveLength(1);
+  });
+
+  it("does not answer from /tasks or /dashboard: those pages show no new lead, so the pop-up must still come", async () => {
+    for (const path of ["/tasks", "/dashboard", "/leads/other"]) {
+      window.history.replaceState(null, "", path);
+      const view = mount();
+      const asker = new FakeChannel(PRESENCE_CHANNEL);
+      const answers: unknown[] = [];
+      asker.onmessage = ({ data }) => { answers.push(data); };
+      asker.postMessage({ type: "ask", id: `q-${path}` });
+      await wait(0);
+      expect(answers).toEqual([]);
+      asker.close();
+      view.unmount();
+    }
   });
 
   it("removes every listener and timer on unmount", async () => {

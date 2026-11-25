@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   mocks.context.mockReset().mockResolvedValue({ tenantId: "tenant-a", userId: "user-a" });
-  mocks.arrivals.mockReset().mockResolvedValue({ count: 1, newest: { id: "lead-1", name: "Ravi", source: "Facebook" } });
+  mocks.arrivals.mockReset().mockResolvedValue({ count: 1, newest: { id: "lead-1", name: "Ravi", source: "Facebook", savedAt: "2026-11-25T09:59:58.123456+00:00" } });
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -26,7 +26,7 @@ describe("new lead arrivals route (background pop-up)", () => {
   it("asks for the session's company since the tab went into the background, on the server's clock, minus a 5 s margin", async () => {
     const response = await POST(post({ hiddenForMs: 60_000 }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ count: 1, newest: { id: "lead-1", name: "Ravi", source: "Facebook" } });
+    expect(await response.json()).toEqual({ count: 1, newest: { id: "lead-1", name: "Ravi", source: "Facebook", savedAt: "2026-11-25T09:59:58.123456+00:00" } });
     expect(mocks.arrivals).toHaveBeenCalledWith({ tenantId: "tenant-a", userId: "user-a" }, new Date(NOW - 60_000 - 5_000).toISOString());
   });
 

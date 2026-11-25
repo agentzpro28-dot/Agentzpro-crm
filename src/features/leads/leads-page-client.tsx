@@ -11,6 +11,7 @@ import { readError, useLeadFilters } from "@/features/leads/use-lead-filters";
 import { useLeadSources } from "@/features/leads/use-lead-sources";
 import { useNewLeadsCount, type NewLeadsSnapshot } from "@/features/leads/use-new-leads-count";
 import { LeadAlertsNudge } from "@/components/task-bell";
+import { SHOW_NEW_LEADS_EVENT } from "@/lib/live-events";
 
 // While the connection checks load, the Source filter offers only Telecaller (always available), so no option ever
 // appears and then disappears.
@@ -190,6 +191,11 @@ export function LeadsPageClient({ focusLeadId }: Readonly<{ focusLeadId?: string
   // The bar's Show: reload with the same filters (new leads can bring a new ad or campaign to the filter choices) and
   // go to the top, where the new leads are.
   const showNewLeads = useCallback(() => { setReloadKey((key) => key + 1); reloadOptions(); window.scrollTo({ top: 0, behavior: "smooth" }); }, [reloadOptions]);
+  // A click on a "New lead" pop-up brought this tab forward: the same as Show (sw.js / use-new-lead-alerts.ts).
+  useEffect(() => {
+    window.addEventListener(SHOW_NEW_LEADS_EVENT, showNewLeads);
+    return () => window.removeEventListener(SHOW_NEW_LEADS_EVENT, showNewLeads);
+  }, [showNewLeads]);
   // A task alert links here with ?lead=<id>: fetch that lead on its own (it may be filtered out or past the first
   // page) and open its drawer.
   const [focusedLead, setFocusedLead] = useState<Lead | null>(null);
