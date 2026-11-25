@@ -13,7 +13,7 @@ import { HOUSING_DEFAULT_LEAD_NAME, HOUSING_LABEL } from "@/lib/housing/housing"
  *   - A field whose value is itself a JSON object (a real object, or text such as data={"name":...}) is unpacked one
  *     level: its keys are read as lead fields too. A top-level field always wins over an unpacked one of the same name.
  * The URL parameters and the body are merged ({ ...query, ...body }: a body value wins) and each lead field is taken
- * from the first name present in its list below.
+ * from the first name present in its list below (capitals, spaces, underscores and hyphens in a name do not matter).
  *
  * Answers are stored in lead_data's field_data shape ([{ name, values }]) under the keys lead_data's contact trigger
  * reads (full_name, email, phone_number), so name / email / phone, phone cleanup (+91, 91, a leading 0, spaces, dashes:
@@ -45,10 +45,11 @@ export const HOUSING_PAYLOAD_MESSAGES = {
 export const HOUSING_MAPPING_FIELDS = ["full_name", "phone", "email", "project_name", "city", "query", "external_lead_id"] as const;
 type MappingField = (typeof HOUSING_MAPPING_FIELDS)[number];
 
-// For each lead field, the names that may fill it, best first (compared case-insensitively, with spaces and hyphens
-// read as "_"). Only the best one present with a usable answer is used. A listing or property id fills the project only
-// when no project name is sent, and is never the enquiry id.
-const DEFAULT_ALIASES: Record<MappingField, readonly string[]> = {
+// For each lead field, the names that may fill it, best first. Names are compared with capitals, spaces, underscores and
+// hyphens ignored (normalizeKey), so "Mobile No", "mobile_no", "MobileNo" and "MOBILE-NO" are the same name. Only the
+// best one present with a usable answer is used. A listing or property id fills the project only when no project name
+// is sent, and is never the enquiry id.
+const ALIAS_NAMES: Record<MappingField, readonly string[]> = {
   full_name: ["name", "full_name", "customer_name", "lead_name", "buyer_name", "user_name", "contact_name", "client_name", "sender_name"],
   phone: ["mobile", "phone", "mobile_number", "phone_number", "mobile_no", "phone_no", "contact_number", "contact_no", "user_phone", "user_mobile", "customer_mobile", "customer_phone", "contact"],
   email: ["email", "email_id", "email_address", "user_email", "customer_email", "sender_email"],
@@ -57,6 +58,13 @@ const DEFAULT_ALIASES: Record<MappingField, readonly string[]> = {
   query: ["message", "query", "remarks", "remark", "comments", "comment", "requirement", "description"],
   external_lead_id: ["lead_id", "enquiry_id", "inquiry_id", "lead_ref", "lead_reference", "id"],
 };
+const DEFAULT_ALIASES = normalizedAliases(ALIAS_NAMES);
+
+function normalizedAliases(lists: Record<MappingField, readonly string[]>): Record<MappingField, readonly string[]> {
+  const result = { ...lists };
+  for (const field of HOUSING_MAPPING_FIELDS) result[field] = [...new Set(lists[field].map(normalizeKey))];
+  return result;
+}
 
 // Where each lead field is stored in field_data.
 const STORED_AS: Record<Exclude<MappingField, "external_lead_id">, string> = {
@@ -306,8 +314,9 @@ function emptyRecord(): Record<string, unknown> {
   return Object.create(null) as Record<string, unknown>;
 }
 
+/** A field name with capitals, spaces, underscores and hyphens ignored: "Mobile No", "mobile_no", "MobileNo" → "mobileno". */
 function normalizeKey(key: string): string {
-  return key.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return key.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
 
 /** Every answer as text: numbers and true/false as written, a list as several answers, a nested object as JSON text. */

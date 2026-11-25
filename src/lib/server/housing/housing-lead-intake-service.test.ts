@@ -113,19 +113,19 @@ describe("HousingLeadIntakeService.ingestFromWebhook", () => {
   });
 
   it("answers 200 Received (not 4XX) and marks the copy failed when there is no mobile or email", async () => {
-    await expect(ingest(json({ name: "Only A Name" }))).resolves.toEqual({ status: 200, message: "Received", accepted: false });
+    await expect(ingest(json({ name: "Only A Name" }))).resolves.toEqual({ status: 200, message: "Received", accepted: false, reason: HOUSING_PAYLOAD_MESSAGES.noContact });
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: HOUSING_PAYLOAD_MESSAGES.noContact }));
     expect(saveCalls()).toHaveLength(0);
   });
 
   it("answers 200 Received for a body in an unknown format", async () => {
-    await expect(ingest({ method: "POST", headers: new Headers({ "content-type": "application/xml" }), query: {}, rawBody: "<lead/>" })).resolves.toEqual({ status: 200, message: "Received", accepted: false });
+    await expect(ingest({ method: "POST", headers: new Headers({ "content-type": "application/xml" }), query: {}, rawBody: "<lead/>" })).resolves.toEqual({ status: 200, message: "Received", accepted: false, reason: HOUSING_PAYLOAD_MESSAGES.unsupportedType });
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: HOUSING_PAYLOAD_MESSAGES.unsupportedType }));
   });
 
   it("answers 200 Received when the database finds no usable contact (22023)", async () => {
     rpcAnswers({ save: { data: null, error: { code: "22023", message: "Mobile number or email not found" } } });
-    await expect(ingest()).resolves.toEqual({ status: 200, message: "Received", accepted: false });
+    await expect(ingest()).resolves.toEqual({ status: 200, message: "Received", accepted: false, reason: HOUSING_PAYLOAD_MESSAGES.noContact });
     expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: HOUSING_PAYLOAD_MESSAGES.noContact }));
   });
 
