@@ -63,6 +63,15 @@ describe("mapMagicbricksLead", () => {
     expect(answers(postJson({ "Buyer Name": "B", "Mobile-No": "9000000003", locality: "Adyar" }))).toEqual({ full_name: ["B"], phone_number: ["9000000003"], city: ["Adyar"] });
   });
 
+  it("ignores capitals, spaces, hyphens and underscores in field names", () => {
+    const lead = mapMagicbricksLead(postJson({ customerName: "C", MobileNo: "9000000004", EMAIL_ID: "c@x.com", PropertyName: "Tower C", CityName: "Salem", LeadId: "MB-L9" }));
+    expect(lead.leadRef).toBe("MB-L9");
+    expect(Object.fromEntries(lead.fieldData.map((field) => [field.name, field.values]))).toEqual({
+      full_name: ["C"], phone_number: ["9000000004"], email: ["c@x.com"], project_name: ["Tower C"], city: ["Salem"],
+    });
+    expect(answers(get("CUST_NAME=D&contactNo=9000000005"))).toEqual({ full_name: ["D"], phone_number: ["9000000005"] });
+  });
+
   it("names the lead \"MagicBricks Lead\" when MagicBricks sends no name", () => {
     expect(answers(postJson({ mobile: "9876543210" })).full_name).toEqual(["MagicBricks Lead"]);
     expect(mapMagicbricksLead(postJson({ mobile: "9876543210" })).enquirySummary).toBe("New MagicBricks enquiry");

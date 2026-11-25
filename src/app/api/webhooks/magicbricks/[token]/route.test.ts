@@ -22,7 +22,7 @@ describe("/api/webhooks/magicbricks/[token]", () => {
   it("passes a POST JSON enquiry to the MagicBricks intake and answers success", async () => {
     const response = await POST(post("{\"mobile\":\"9876543210\"}"), params());
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ success: true, message: "Lead received" });
+    await expect(response.json()).resolves.toEqual({ success: true, accepted: 1, message: "Lead received" });
     expect(mocks.ingest).toHaveBeenCalledWith(TOKEN, expect.objectContaining({ method: "POST", query: {}, rawBody: "{\"mobile\":\"9876543210\"}" }));
   });
 
@@ -33,14 +33,14 @@ describe("/api/webhooks/magicbricks/[token]", () => {
 
   it("says duplicate: true for a retry or a same-phone note", async () => {
     mocks.ingest.mockResolvedValueOnce({ status: 200, message: "Lead received", duplicate: true, outcome: "merged", leadId: "lead-1" });
-    await expect((await POST(post("{}"), params())).json()).resolves.toEqual({ success: true, message: "Lead received", duplicate: true });
+    await expect((await POST(post("{}"), params())).json()).resolves.toEqual({ success: true, accepted: 1, message: "Lead received", duplicate: true });
   });
 
   it("answers 4XX with success: false and the reason", async () => {
     mocks.ingest.mockResolvedValueOnce({ status: 400, message: "Send mobile or email." });
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ success: false, message: "Send mobile or email." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Send mobile or email." });
   });
 
   it("answers 429 with Retry-After", async () => {
@@ -48,12 +48,19 @@ describe("/api/webhooks/magicbricks/[token]", () => {
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("7");
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Too many leads. Try again shortly." });
   });
 
   it("refuses a body declared over 64 KB before reading it", async () => {
     const response = await POST(post("{}", { "content-type": "application/json", "content-length": String(64 * 1024 + 1) }), params());
     expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Payload too large." });
     expect(mocks.ingest).not.toHaveBeenCalled();
+  });
+
+  it("answers an empty URL check with accepted: 0", async () => {
+    mocks.ingest.mockResolvedValueOnce({ status: 200, message: "Webhook ready" });
+    await expect((await GET(new Request(`https://crm.example.com/api/webhooks/magicbricks/${TOKEN}`), params())).json()).resolves.toEqual({ success: true, accepted: 0, message: "Webhook ready" });
   });
 
   it("answers 500 (safe to retry) when the intake throws", async () => {
@@ -61,7 +68,7 @@ describe("/api/webhooks/magicbricks/[token]", () => {
     mocks.ingest.mockRejectedValueOnce(new Error("boom"));
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ success: false, message: "Temporary failure, retry later." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Temporary failure, retry later." });
   });
 
   it("never saves anything on HEAD", async () => {
