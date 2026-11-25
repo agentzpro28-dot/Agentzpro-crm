@@ -2628,6 +2628,10 @@ button.mvp-field-box__control:disabled { pointer-events: none; opacity: .5; bord
 /* /leads "N new leads arrived." bar: stays in view while the table scrolls; below the lead drawer (49) and dialogs. */
 .mvp-new-leads-banner { position: sticky; top: 12px; z-index: 30; align-items: center; margin: 0 0 14px; box-shadow: var(--shadow); }
 .mvp-new-leads-banner strong { margin-bottom: 0; }
+/* "Turn on notifications to get new-lead alerts": right-aligned above the table, only while notifications are off. */
+.mvp-leads-nudge { display: flex; gap: 6px; width: fit-content; min-height: 32px; margin: 0 0 10px auto; }
+.mvp-leads-nudge--blocked { color: var(--text-muted); font-weight: 600; cursor: default; }
+.mvp-leads-nudge--blocked:hover { text-decoration: none; }
 .mvp-detail-panel { position: fixed; inset: 0 0 0 auto; z-index: 50; width: min(430px, 100vw); overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); box-shadow: -16px 0 40px rgba(15, 23, 42, .16); }
 .mvp-detail-panel__header { display: flex; align-items: start; justify-content: space-between; padding: 24px; border-bottom: 1px solid var(--border); }.mvp-detail-panel__header h2 { margin: 2px 0 0; }.mvp-detail-panel__body { display: grid; gap: 18px; padding: 24px; }
 .mvp-detail { display: grid; gap: 5px; }.mvp-detail > span { color: var(--text-muted); font-size: .75rem; font-weight: 900; text-transform: uppercase; }.mvp-detail strong { font-size: .96rem; }.mvp-detail select { padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; }

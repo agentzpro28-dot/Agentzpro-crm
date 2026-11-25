@@ -134,6 +134,33 @@ export async function countNewLeadsOnFirstPage(context: TenantRequestContext, re
   return count ?? 0;
 }
 
+/** The newest lead saved in a window, for the background "New lead" pop-up. */
+export interface LeadArrivals { count: number; newest: { id: string; name: string; source: string } | null }
+
+/**
+ * How many of the company's leads were saved after `since`, and the newest of them, for the pop-up a CRM tab shows
+ * while it is in the background. One query on lead_data_tenant_saved_at_idx (tenant_id, created_at desc): the count
+ * and the newest row come back together. Every member of a company sees every lead of it on /leads, so this shows a
+ * member nothing they could not already open. `since` is an ISO time the route computed; Postgres compares it.
+ */
+export async function countLeadsSavedSince(context: TenantRequestContext, since: string): Promise<LeadArrivals> {
+  const { data, error, count } = await getSupabaseAdminClient().from("lead_data")
+    .select("id,lead_name,lead_source,lead_platform", { count: "exact" })
+    .eq("tenant_id", context.tenantId)
+    .gt("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new AppError("New leads could not be checked.", { status: 500, code: "LEAD_QUERY_FAILED" });
+  const row = (data?.[0] ?? null) as { id: unknown; lead_name: unknown; lead_source: unknown; lead_platform: unknown } | null;
+  const total = count ?? (row ? 1 : 0);
+  if (!row) return { count: total, newest: null };
+  const name = typeof row.lead_name === "string" && row.lead_name.trim() ? row.lead_name.trim() : "Unnamed Lead";
+  // A call-in lead is shown as the telecaller's, like the table's marker; every other lead by its platform.
+  const key = row.lead_source === "telecaller" ? "telecaller" : row.lead_platform;
+  const source = (LEAD_SOURCES as readonly unknown[]).includes(key) ? LEAD_SOURCE_LABELS[key as LeadSource] : "New lead";
+  return { count: total, newest: { id: String(row.id), name, source } };
+}
+
 /**
  * The table's filters, shared by the table and CSV download (queryLeads) and the new-leads count
  * (countNewLeadsOnFirstPage), so the count can never include a lead the table would not show. The caller has already

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, deleteLeads, queryLeads, resolveTenantTimezone, updateLeadSecondStatus, updateLeadTriage } from "@/lib/server/lead-query-service";
+import { countLeadsSavedSince, countNewLeadsOnFirstPage, deleteLead, getLeadFilterOptions, getLeadFormAnswers, getLeadsCursor, deleteLeads, queryLeads, resolveTenantTimezone, updateLeadSecondStatus, updateLeadTriage } from "@/lib/server/lead-query-service";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/server/supabase-admin", () => ({ getSupabaseAdminClient: () => ({ from: mocks.from, rpc: mocks.rpc }) }));
@@ -813,5 +813,47 @@ describe("independent reads start together", () => {
     expect(mocks.from).toHaveBeenCalledWith("lead_tasks");
     profiles.release();
     await expect(result).resolves.toMatchObject({ items: [{ id: "lead-1", assigneeName: "Member B", hasOpenTask: false }] });
+  });
+});
+
+describe("countLeadsSavedSince (the background new-lead pop-up)", () => {
+  const since = "2026-11-25T09:58:55.000Z";
+
+  it("reads the company's leads saved after the time in one query: the count and the newest row, newest first", async () => {
+    const leads = builder({ data: [{ id: "lead-9", lead_name: " Ravi Kumar ", lead_source: "meta", lead_platform: "facebook" }], error: null, count: 3 });
+    mocks.from.mockReturnValue(leads);
+    await expect(countLeadsSavedSince(context, since)).resolves.toEqual({ count: 3, newest: { id: "lead-9", name: "Ravi Kumar", source: "Facebook" } });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(mocks.from).toHaveBeenCalledWith("lead_data");
+    expect(leads.select).toHaveBeenCalledWith("id,lead_name,lead_source,lead_platform", { count: "exact" });
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.gt).toHaveBeenCalledWith("created_at", since);
+    expect(leads.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    expect(leads.limit).toHaveBeenCalledWith(1);
+  });
+
+  it.each([
+    ["a call-in lead as the telecaller's", { lead_source: "telecaller", lead_platform: "facebook" }, "Telecaller"],
+    ["a Google Ads lead", { lead_source: "google", lead_platform: "google_ads" }, "Google Ads"],
+    ["a Sulekha lead", { lead_source: "sulekha", lead_platform: "sulekha" }, "Sulekha"],
+    ["an unknown platform neutrally", { lead_source: "x", lead_platform: "something_new" }, "New lead"],
+  ])("names %s", async (_name, row, source) => {
+    mocks.from.mockReturnValue(builder({ data: [{ id: "lead-1", lead_name: "Ravi", ...row }], error: null, count: 1 }));
+    await expect(countLeadsSavedSince(context, since)).resolves.toMatchObject({ newest: { source } });
+  });
+
+  it("calls a lead without a name Unnamed Lead, like the table", async () => {
+    mocks.from.mockReturnValue(builder({ data: [{ id: "lead-1", lead_name: "  ", lead_source: "meta", lead_platform: "facebook" }], error: null, count: 1 }));
+    await expect(countLeadsSavedSince(context, since)).resolves.toMatchObject({ newest: { name: "Unnamed Lead" } });
+  });
+
+  it("answers nothing new as a zero count with no lead", async () => {
+    mocks.from.mockReturnValue(builder({ data: [], error: null, count: 0 }));
+    await expect(countLeadsSavedSince(context, since)).resolves.toEqual({ count: 0, newest: null });
+  });
+
+  it("throws on a database error instead of announcing a made-up lead", async () => {
+    mocks.from.mockReturnValue(builder({ data: null, error: { message: "boom" } }));
+    await expect(countLeadsSavedSince(context, since)).rejects.toMatchObject({ status: 500, code: "LEAD_QUERY_FAILED" });
   });
 });

@@ -5,7 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { formatDateTime } from "@/lib/date-utils";
+import { useNewLeadAlerts } from "@/features/leads/use-new-lead-alerts";
 import { readLeadChange } from "@/lib/lead-change-signal";
+import { LEADS_CHANGED_EVENT } from "@/lib/live-events";
 import { openLiveStream, type LiveStream } from "@/lib/live-stream";
 import type { TaskNotification } from "@/lib/server/task-notification-service";
 import logoIcon from "@/logo-icon.png";
@@ -15,18 +17,15 @@ interface Feed { items: TaskNotification[]; unread: number }
 const MAX_TOASTS = 3;
 /** Fired on window when the live stream says tasks may have changed; the Tasks page refetches on it. */
 export const TASKS_CHANGED_EVENT = "agentz:tasks-changed";
-/**
- * Fired on window when the live stream says a lead was added, changed or deleted, and when the tab comes back into
- * view; the /leads page then checks for new leads. For an update its detail is a LeadChangeDetail (when the newest
- * changed lead was saved), so /leads can skip changes to older leads; every other case has no detail.
- */
-export const LEADS_CHANGED_EVENT = "agentz:leads-changed";
+export { LEADS_CHANGED_EVENT };
 /**
  * How long the live stream may stay quiet before /leads stops trusting it. The stream route ends every stream after
  * at most 280 s and the browser reconnects at most 5 s later, which says "live" again, so a working stream is never
  * quiet this long; a connection that died without an error counts as down after it.
  */
 const LIVE_STREAM_QUIET_MS = 330_000;
+/** EventSource.CLOSED, kept here so the shell never reads the global (tests remove it on teardown). */
+const EVENT_SOURCE_CLOSED = 2;
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 
 function urlBase64ToBytes(value: string): Uint8Array<ArrayBuffer> {
@@ -57,6 +56,17 @@ const TaskAlertsContext = createContext<TaskAlerts | null>(null);
  * never re-renders a page. Outside the shell it always answers no, so the caller keeps its own checks.
  */
 const LiveStreamContext = createContext<() => boolean>(() => false);
+/**
+ * "Turn on notifications" for the /leads page: the same browser switch as the Tasks bell (one permission covers task
+ * reminders and new-lead pop-ups). Shown only while notifications are off; nothing outside the shell.
+ */
+export function LeadAlertsNudge() {
+  const alerts = useContext(TaskAlertsContext);
+  if (!alerts || (alerts.pushState !== "ask" && alerts.pushState !== "blocked")) return null;
+  if (alerts.pushState === "blocked") return <span className="mvp-bell__nudge mvp-leads-nudge mvp-leads-nudge--blocked" role="note"><BellOff size={14} aria-hidden="true" /> Notifications are blocked. Allow them in the site settings to get new-lead alerts.</span>;
+  return <button type="button" className="mvp-bell__nudge mvp-leads-nudge" onClick={() => void alerts.enablePush()}><BellRing size={14} aria-hidden="true" /> Turn on notifications to get new-lead alerts</button>;
+}
+
 export function useLiveStreamUp(): () => boolean {
   return useContext(LiveStreamContext);
 }
@@ -91,15 +101,19 @@ export function TaskAlertsProvider({ children }: Readonly<{ children: React.Reac
     }
   }, []);
 
+  // The "New lead" pop-up while this tab is in the background (it listens to the lead events this stream fires).
+  useNewLeadAlerts(isStreamUp);
+
   useEffect(() => {
     const first = setTimeout(() => void load(false), 0);
     // One live stream for the whole shell (the Tasks page listens to the window events below instead of opening
-    // its own; the dashboard and the lead timeline share the same connection through openLiveStream). It is closed
-    // while the tab is hidden, like the dashboard's, and a catch-up fetch runs on return.
+    // its own; the dashboard and the lead timeline share the same connection through openLiveStream). It stays open
+    // while the tab is in the background, so a new lead can still raise the "New lead" pop-up there (the dashboard
+    // and the timeline close their own handles while hidden; this one keeps the connection). A catch-up runs on return.
     let source: LiveStream | null = null;
     // Up only once the server says "live" on this connection: from then on every lead write reaches the page. Any
-    // doubt (an error, "degraded", unreadable data, a hidden tab, a stream quiet for too long) counts as down, and
-    // /leads then runs its own once-a-minute check, as it did before.
+    // doubt (an error, "degraded", unreadable data, a stream quiet for too long) counts as down, and /leads and the
+    // background pop-up then run their own once-a-minute check, as before.
     let quiet: ReturnType<typeof setTimeout> | undefined;
     const markDown = () => { clearTimeout(quiet); quiet = undefined; streamUp.current = false; };
     const markUp = () => {
@@ -114,9 +128,16 @@ export function TaskAlertsProvider({ children }: Readonly<{ children: React.Reac
       source?.close();
       const next = openLiveStream();
       source = next;
-      next.addEventListener("task_reminder", () => { void load(true); window.dispatchEvent(new Event(TASKS_CHANGED_EVENT)); });
-      next.addEventListener("change", (event) => {
+      // While the tab is in the background only the lead event goes out (for the "New lead" pop-up): the bell and the
+      // Tasks page wait for the catch-up on return, as they did when a hidden tab held no stream (browser push covers
+      // reminders meanwhile).
+      next.addEventListener("task_reminder", () => {
+        if (document.hidden) return;
+        void load(true);
         window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+      });
+      next.addEventListener("change", (event) => {
+        if (!document.hidden) window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
         window.dispatchEvent(new CustomEvent(LEADS_CHANGED_EVENT, { detail: readLeadChange((event as MessageEvent<unknown>).data) }));
       });
       next.addEventListener("status", (event) => {
@@ -128,14 +149,17 @@ export function TaskAlertsProvider({ children }: Readonly<{ children: React.Reac
       // The browser reconnects by itself (or gives up); either way nothing arrives until the server says "live" again.
       next.onerror = () => { if (source === next) markDown(); };
     };
+    // Hidden: nothing changes, the connection stays open. Back in view: reconnect only if the browser gave up on the
+    // connection meanwhile, then the same catch-up as always (the bell, the Tasks page, the /leads bar check).
     const onVisibility = () => {
-      if (document.hidden) { source?.close(); source = null; markDown(); return; }
-      open();
+      if (document.hidden) return;
+      if (!source || source.readyState === EVENT_SOURCE_CLOSED) open();
       void load(true);
       window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
       window.dispatchEvent(new Event(LEADS_CHANGED_EVENT));
     };
-    if (!document.hidden) open();
+    // Opened even in a tab that starts in the background, so its first new lead can raise the pop-up too.
+    open();
     document.addEventListener("visibilitychange", onVisibility);
     return () => { clearTimeout(first); document.removeEventListener("visibilitychange", onVisibility); source?.close(); markDown(); };
   }, [load]);
