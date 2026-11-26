@@ -12,9 +12,9 @@ export const SULEKHA_WEBHOOK_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 /**
  * What the Sulekha webhook answers.
  *   200 "Lead received"  saved (`duplicate`: already saved, or added as a note to the lead with this phone).
- *   200 "Received"       the raw copy is saved but no lead could be read from it (no mobile/email, unknown format);
- *                        `reason` says why. It is listed under Failed requests in the card and kept for support. Not a
- *                        4XX on purpose: a sender may switch a webhook off after repeated errors.
+ *   400 / 415            not saved: no lead could be read from it (no mobile/email, not one lead object...) / a body
+ *                        that is not JSON, form data or URL parameters. The raw copy is kept and listed under Failed
+ *                        requests in the card. Never 200: 200 means the lead was saved.
  *   200 "Webhook ready"  an empty URL check.
  *   404 / 413            a wrong, replaced or expired URL / a body over 64 KB: never accepted as sent.
  *   429                  too many leads this minute (try again after `retryAfterSeconds`).
@@ -22,9 +22,8 @@ export const SULEKHA_WEBHOOK_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
  */
 export type SulekhaIntakeResult =
   | { status: 200; message: "Lead received"; duplicate: boolean; outcome: SulekhaLeadOutcome; leadId: string }
-  | { status: 200; message: "Received"; accepted: false; reason: string }
   | { status: 200; message: "Webhook ready" }
-  | { status: 404 | 413 | 500; message: string }
+  | { status: 400 | 404 | 413 | 415 | 500; message: string }
   | { status: 429; message: string; retryAfterSeconds: number };
 
 export interface IncomingSulekhaRequest {
@@ -162,11 +161,11 @@ export class SulekhaLeadIntakeService {
   }
 }
 
-/** Kept, listed as failed, answered 200: see SulekhaIntakeResult. */
+/** Not saved: kept, listed as failed, answered 415 for an unsupported body and 400 otherwise (see SulekhaIntakeResult). */
 async function notReadable(logId: string, tenantId: string, message: string): Promise<SulekhaIntakeResult> {
   log("NOT_READABLE", tenantId);
   await markFailed(logId, tenantId, message);
-  return { status: 200, message: "Received", accepted: false, reason: message };
+  return { status: message === SULEKHA_PAYLOAD_MESSAGES.unsupportedType ? 415 : 400, message };
 }
 
 /**

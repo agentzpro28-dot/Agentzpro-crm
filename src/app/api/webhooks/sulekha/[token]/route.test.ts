@@ -41,18 +41,25 @@ describe("/api/webhooks/sulekha/[token]", () => {
     await expect((await POST(post("{}"), params())).json()).resolves.toEqual({ success: true, accepted: 1, message: "Lead received", duplicate: true });
   });
 
-  it("answers 200 Received (not a 4XX) when the copy was kept but no lead could be read", async () => {
-    mocks.ingest.mockResolvedValueOnce({ status: 200, message: "Received", accepted: false, reason: "Mobile number or email not found." });
+  it("answers 400 with the reason (never 200) when no lead could be read", async () => {
+    mocks.ingest.mockResolvedValueOnce({ status: 400, message: "Mobile number or email not found." });
     const response = await POST(post("{\"foo\":\"bar\"}"), params());
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ success: true, accepted: 0, message: "Received", reason: "Mobile number or email not found." });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Mobile number or email not found." });
+  });
+
+  it("answers 415 with the reason for a body that is not JSON, form data or URL parameters", async () => {
+    mocks.ingest.mockResolvedValueOnce({ status: 415, message: "The body is not JSON, form data or URL parameters." });
+    const response = await POST(post("<lead/>", { "content-type": "application/xml" }), params());
+    expect(response.status).toBe(415);
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "The body is not JSON, form data or URL parameters." });
   });
 
   it("answers 404 with success: false for a wrong URL", async () => {
     mocks.ingest.mockResolvedValueOnce({ status: 404, message: "Unknown webhook." });
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Unknown webhook." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Unknown webhook." });
   });
 
   it("answers 429 with Retry-After", async () => {
@@ -60,13 +67,13 @@ describe("/api/webhooks/sulekha/[token]", () => {
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("7");
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Too many leads. Try again shortly." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Too many leads. Try again shortly." });
   });
 
   it("refuses a body declared over 64 KB before reading it", async () => {
     const response = await POST(post("{}", { "content-type": "application/json", "content-length": String(64 * 1024 + 1) }), params());
     expect(response.status).toBe(413);
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Payload too large." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Payload too large." });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });
 
@@ -80,7 +87,7 @@ describe("/api/webhooks/sulekha/[token]", () => {
     mocks.ingest.mockRejectedValueOnce(new Error("boom"));
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Temporary failure, retry later." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Temporary failure, retry later." });
   });
 
   it("never saves anything on HEAD", async () => {
