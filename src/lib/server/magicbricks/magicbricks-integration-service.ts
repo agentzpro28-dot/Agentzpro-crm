@@ -23,10 +23,17 @@ const FAILED_REQUEST_COLUMNS = "id,created_at,error_message";
 /**
  * The stored error_message of a failed request → the short label the owner sees. Built from the same constants the
  * intake and the field reader write, so the two can never drift apart. Anything not listed, and a request stuck at
- * "received" (no message), shows as "Not saved".
+ * "received" (no message), shows as "Not saved". The texts the field reader wrote before 2026-11-26 are listed as
+ * written, so older failed requests keep their label.
  */
 const FAILURE_REASONS: ReadonlyMap<string, MagicbricksFailureReason> = new Map<string, MagicbricksFailureReason>([
   [MAGICBRICKS_PAYLOAD_MESSAGES.noContact, "Mobile number or email not found"],
+  ["Send mobile or email.", "Mobile number or email not found"],
+  ["Send the lead as a JSON object.", "Unsupported format"],
+  ["Send one lead per request.", "Unsupported format"],
+  ["Send 100 fields or fewer.", "Unsupported format"],
+  ["Field names must be 100 characters or fewer.", "Unsupported format"],
+  ["Send JSON, form data or URL parameters.", "Unsupported format"],
   [MAGICBRICKS_PAYLOAD_MESSAGES.unsupportedType, "Unsupported format"],
   [MAGICBRICKS_PAYLOAD_MESSAGES.notJsonObject, "Unsupported format"],
   [MAGICBRICKS_PAYLOAD_MESSAGES.oneLeadPerRequest, "Unsupported format"],
