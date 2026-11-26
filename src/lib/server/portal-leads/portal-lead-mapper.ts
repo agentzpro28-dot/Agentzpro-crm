@@ -75,7 +75,9 @@ const RESERVED_NAMES = new Set(["full_name", "first_name", "last_name", "email",
 // Checking a field by its value (findByValue), when no known name holds the phone or the email.
 const PHONE_VALUE_CHARACTERS = /^[+\d\s().-]+$/;
 const INDIAN_MOBILE = /^[6-9]\d{9}$/;
-const EMAIL_VALUE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// An email value: at most 254 characters (the longest valid address), checked without a regex so a long value can
+// never make it slow.
+const MAX_EMAIL_LENGTH = 254;
 // A field with one of these name words is never read as a phone or email by value: an id, a reference, or an amount.
 // A word ending in "id" ("pid", "leadid") or starting / ending with "ref" ("refno", "leadref") counts as an id too.
 const NOT_CONTACT_WORDS = new Set(["id", "ids", "price", "budget", "amount", "cost", "rate", "area", "size", "sqft", "pincode", "pin", "zip", "zipcode", "postcode"]);
@@ -230,12 +232,22 @@ export async function mapPortalLead(portal: PortalId, request: PortalLeadRequest
  */
 function findByValue(entries: Entry[], kind: "phone" | "email"): Entry | undefined {
   const matches = entries.filter((entry) => entry.values.length === 1 && !isNotContactName(entry.key)
-    && (kind === "phone" ? mobileDigits(entry.values[0]) !== null : EMAIL_VALUE.test(entry.values[0])));
+    && (kind === "phone" ? mobileDigits(entry.values[0]) !== null : isEmailValue(entry.values[0])));
   const single = (list: Entry[]) => {
     const distinct = new Set(list.map((entry) => (kind === "phone" ? mobileDigits(entry.values[0]) : entry.values[0].toLowerCase())));
     return distinct.size === 1 ? list[0] : undefined;
   };
   return single(matches) ?? single(matches.filter((entry) => hasHint(entry.key, kind)));
+}
+
+/** True for one address shaped like name@domain.tld: one "@", no spaces, a dot inside the domain. */
+function isEmailValue(value: string): boolean {
+  if (value.length > MAX_EMAIL_LENGTH || /\s/.test(value)) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at !== value.lastIndexOf("@")) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  return dot > 0 && dot < domain.length - 1;
 }
 
 /** The 10-digit Indian mobile in a value, or null. */
