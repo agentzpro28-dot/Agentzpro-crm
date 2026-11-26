@@ -117,7 +117,7 @@ export class MagicbricksLeadIntakeService {
 
     let lead;
     try {
-      lead = mapMagicbricksLead(leadRequest, { fieldMapping: integration.field_mapping });
+      lead = await mapMagicbricksLead(leadRequest, { fieldMapping: integration.field_mapping });
     } catch (mapError) {
       if (mapError instanceof MagicbricksPayloadError) {
         log("INVALID_PAYLOAD", tenantId);
