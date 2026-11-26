@@ -5,7 +5,7 @@ import { AppError } from "@/lib/server/app-error";
 import { requireCrmAccess } from "@/lib/server/auth/access";
 import { PORTAL_IDS, PORTALS, type PortalFailedRequestView, type PortalFailureReason, type PortalId, type PortalIntegrationOverview, type PortalIntegrationStatus } from "@/lib/portal-leads/portals";
 import { hashPortalWebhookToken } from "@/lib/server/portal-leads/portal-lead-intake-service";
-import { MAX_PORTAL_FIELD_KEY_LENGTH, MAX_PORTAL_LEAD_FIELDS } from "@/lib/server/portal-leads/portal-lead-mapper";
+import { MAX_PORTAL_FIELD_KEY_LENGTH, MAX_PORTAL_LEAD_FIELDS, PORTAL_PAYLOAD_MESSAGES } from "@/lib/server/portal-leads/portal-lead-mapper";
 import { getSupabaseAdminClient } from "@/lib/server/supabase-admin";
 import { decryptToken, encryptToken } from "@/lib/server/token-crypto";
 
@@ -23,9 +23,16 @@ const FAILED_REQUEST_COLUMNS = "id,created_at,error_message";
 /**
  * The stored error_message of a failed request (the webhook's answer to the portal, written by the intake and the
  * mapper) → the short label the owner sees. Matched exactly; anything not listed, and a request stuck at "received"
- * (no message), shows as "Not saved".
+ * (no message), shows as "Not saved". The texts used before 2026-11-26 stay listed, so older failed requests keep
+ * their label.
  */
 const FAILURE_REASONS: ReadonlyMap<string, PortalFailureReason> = new Map<string, PortalFailureReason>([
+  [PORTAL_PAYLOAD_MESSAGES.noContact, "Mobile number or email not found"],
+  [PORTAL_PAYLOAD_MESSAGES.unsupportedType, "Unsupported format"],
+  [PORTAL_PAYLOAD_MESSAGES.notJsonObject, "Unsupported format"],
+  [PORTAL_PAYLOAD_MESSAGES.oneLeadPerRequest, "Unsupported format"],
+  [PORTAL_PAYLOAD_MESSAGES.tooManyFields, "Unsupported format"],
+  [PORTAL_PAYLOAD_MESSAGES.fieldNameTooLong, "Unsupported format"],
   ["Send mobile or email.", "Mobile number or email not found"],
   ["Send JSON, form data or URL parameters.", "Unsupported format"],
   ["Send the lead as a JSON object.", "Unsupported format"],

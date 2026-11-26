@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { parsePortalId, type PortalId, type PortalLeadOutcome } from "@/lib/portal-leads/portals";
 import { checkCustomWebhookRate } from "@/lib/server/custom-webhook/webhook-rate-limit";
-import { MAX_PORTAL_WEBHOOK_BODY_BYTES, PortalLeadPayloadError, isEmptyPortalRequest, mapPortalLead } from "@/lib/server/portal-leads/portal-lead-mapper";
+import { MAX_PORTAL_WEBHOOK_BODY_BYTES, PORTAL_PAYLOAD_MESSAGES, PortalLeadPayloadError, isEmptyPortalRequest, mapPortalLead } from "@/lib/server/portal-leads/portal-lead-mapper";
 import { getSupabaseAdminClient } from "@/lib/server/supabase-admin";
 
 /** The URL token: 32 random bytes, base64url without padding (43 characters). */
@@ -111,7 +111,7 @@ export class PortalLeadIntakeService {
 
     let lead;
     try {
-      lead = mapPortalLead(portal, { method: request.method, contentType: request.headers.get("content-type"), query: request.query, rawBody: request.rawBody }, { fieldMapping: integration.field_mapping });
+      lead = await mapPortalLead(portal, { method: request.method, contentType: request.headers.get("content-type"), query: request.query, rawBody: request.rawBody }, { fieldMapping: integration.field_mapping });
     } catch (mapError) {
       if (mapError instanceof PortalLeadPayloadError) {
         log(portal, "INVALID_PAYLOAD", tenantId);
@@ -144,8 +144,8 @@ export class PortalLeadIntakeService {
       // The database's own check (no phone and no email, or an over-long lead id).
       if (ingestError.code === "22023") {
         log(portal, "INVALID_PAYLOAD", tenantId);
-        await markFailed(logId, tenantId, "Send mobile or email.");
-        return { status: 400, message: "Send mobile or email." };
+        await markFailed(logId, tenantId, PORTAL_PAYLOAD_MESSAGES.noContact);
+        return { status: 400, message: PORTAL_PAYLOAD_MESSAGES.noContact };
       }
       await markFailed(logId, tenantId, "Temporary failure on our side. The portal may send it again.");
       return failure(portal, "LEAD_INGEST_FAILED", tenantId);
