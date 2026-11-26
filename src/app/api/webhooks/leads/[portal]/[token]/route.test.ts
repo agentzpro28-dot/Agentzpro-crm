@@ -75,7 +75,7 @@ describe("/api/webhooks/leads/[portal]/[token]", () => {
   it("5. an invalid token is refused with 404 before any database work", async () => {
     const response = await POST(new Request(url("", "not-a-token"), { method: "POST", body: JSON.stringify({ name: "x", mobile: "9876543210" }) }), params("not-a-token"));
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ success: false, accepted: 0, message: "Unknown webhook." });
+    expect(await response.json()).toEqual({ success: false, accepted: 0, reason: "Unknown webhook." });
     expect(mocks.lookup).not.toHaveBeenCalled();
     mocks.lookup.mockResolvedValueOnce({ data: [], error: null });
     expect((await GET(new Request(url("?mobile=9876543210")), params())).status).toBe(404);
@@ -87,7 +87,7 @@ describe("/api/webhooks/leads/[portal]/[token]", () => {
   it("answers a lead with no mobile or email 400, after keeping its raw copy", async () => {
     const response = await POST(new Request(url(), { method: "POST", body: JSON.stringify({ name: "No Contact" }) }), params());
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ success: false, accepted: 0, message: "Send mobile or email." });
+    expect(await response.json()).toEqual({ success: false, accepted: 0, reason: "Send mobile or email." });
     expect(mocks.insert).toHaveBeenCalledTimes(1);
   });
 
@@ -106,7 +106,7 @@ describe("/api/webhooks/leads/[portal]/[token]", () => {
   it("refuses a declared body over 64 KB with 413 before reading it", async () => {
     const response = await POST(new Request(url(), { method: "POST", headers: { "content-length": String(70_000) }, body: "{}" }), params());
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ success: false, accepted: 0, message: "Payload too large." });
+    expect(await response.json()).toEqual({ success: false, accepted: 0, reason: "Payload too large." });
     expect(mocks.lookup).not.toHaveBeenCalled();
   });
 
@@ -115,7 +115,7 @@ describe("/api/webhooks/leads/[portal]/[token]", () => {
     const response = await POST(new Request(url(), { method: "POST", body: JSON.stringify({ mobile: "9876543210" }) }), params());
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("12");
-    expect(await response.json()).toEqual({ success: false, accepted: 0, message: "Too many leads. Try again shortly." });
+    expect(await response.json()).toEqual({ success: false, accepted: 0, reason: "Too many leads. Try again shortly." });
   });
 
   it("reads field names with capitals, spaces and underscores ignored (MobileNo, customerName, EMAIL_ID)", async () => {
@@ -128,6 +128,6 @@ describe("/api/webhooks/leads/[portal]/[token]", () => {
     mocks.lookup.mockRejectedValue(new Error("network"));
     const response = await POST(new Request(url(), { method: "POST", body: JSON.stringify({ mobile: "9876543210" }) }), params());
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ success: false, accepted: 0, message: "Temporary failure, retry later." });
+    expect(await response.json()).toEqual({ success: false, accepted: 0, reason: "Temporary failure, retry later." });
   });
 });
