@@ -215,6 +215,7 @@ describe("the same reading rules as every portal", () => {
     { title: "a number with letters is never the phone", request: () => tablePost({ note: `call ${MOBILE}` }), error: "Mobile number or email not found." },
     { title: "a landline is never taken by value", request: () => tablePost({ office: "04423456789" }), error: "Mobile number or email not found." },
     { title: "no phone and no email", request: () => tablePost({ name: "Ravi" }), error: "Mobile number or email not found." },
+    { title: "a very long value is never an email, and is checked quickly", request: () => tablePost({ note: `a@${"a.".repeat(30000)}` }), error: "Mobile number or email not found." },
     { title: "XML", request: () => tablePost("<lead><mobile>9876543210</mobile></lead>", "application/xml"), error: "The body is not JSON, form data or URL parameters." },
     { title: "a bare JSON number", request: () => tablePost("123"), error: "The body is not a lead object." },
     { title: "more than 100 fields", request: () => tablePost({ ...Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`f${index}`, "v"])), mobile: MOBILE }), error: "More than 100 fields." },
