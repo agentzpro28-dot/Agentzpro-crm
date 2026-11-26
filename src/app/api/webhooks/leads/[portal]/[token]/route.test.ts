@@ -87,7 +87,7 @@ describe("/api/webhooks/leads/[portal]/[token]", () => {
   it("answers a lead with no mobile or email 400, after keeping its raw copy", async () => {
     const response = await POST(new Request(url(), { method: "POST", body: JSON.stringify({ name: "No Contact" }) }), params());
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ success: false, accepted: 0, reason: "Send mobile or email." });
+    expect(await response.json()).toEqual({ success: false, accepted: 0, reason: "Mobile number or email not found." });
     expect(mocks.insert).toHaveBeenCalledTimes(1);
   });
 

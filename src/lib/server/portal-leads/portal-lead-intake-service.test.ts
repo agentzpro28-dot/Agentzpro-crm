@@ -116,9 +116,9 @@ describe("PortalLeadIntakeService.ingestFromWebhook", () => {
   });
 
   it("keeps the raw request when it cannot be read: the log is marked failed with the reason", async () => {
-    await expect(ingest(json({ cust_name: "No Contact" }))).resolves.toEqual({ status: 400, message: "Send mobile or email." });
+    await expect(ingest(json({ cust_name: "No Contact" }))).resolves.toEqual({ status: 400, message: "Mobile number or email not found." });
     expect(mocks.insert).toHaveBeenCalledTimes(1);
-    expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: "Send mobile or email." }));
+    expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error_message: "Mobile number or email not found." }));
     expect(mocks.rpc).not.toHaveBeenCalled();
     await expect(ingest({ method: "POST", headers: new Headers({ "content-type": "application/xml" }), query: {}, rawBody: "<lead/>" })).resolves.toMatchObject({ status: 415 });
     expect(mocks.insert).toHaveBeenCalledTimes(2);

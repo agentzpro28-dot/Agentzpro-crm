@@ -5,10 +5,16 @@ import { PORTALS, type PortalId } from "@/lib/portal-leads/portals";
 
 /**
  * Reads one enquiry a real-estate portal (99acres today) sends to a company's portal webhook URL. Indian portals do
- * not agree on a format: the same lead may arrive as POST JSON, as an ordinary form post or as GET URL parameters,
- * under names like "cust_name", "contact_no" or "mobile". The URL parameters and the body are merged (a body value wins)
- * and each lead field is taken from the first name present in its fallback list (capitals, spaces, underscores and
- * hyphens in a name do not matter).
+ * not agree on a format, so the reader is tolerant:
+ *   - GET: the URL parameters.
+ *   - POST: the body is read as JSON first, whatever the content type says (portals often post JSON as text/plain or
+ *     as form data). A multipart form is read as a form. Anything else with name=value pairs is read as url-encoded
+ *     form data. One lead wrapped in a list ([{...}]) is read as that lead.
+ *   - A field whose value is itself a JSON object (a real object, or text such as data={"name":...}) is unpacked one
+ *     level: its keys are read as lead fields too. A top-level field always wins over an unpacked one of the same name.
+ * The URL parameters and the body are merged (a body value wins) and each lead field is taken from the first name
+ * present in its list below (capitals, spaces, underscores and hyphens in a name do not matter). When no known name
+ * holds the phone (or the email), the other fields are checked by their value (see findByValue).
  *
  * Answers are stored in Meta's field_data shape ([{ name, values }]) and the contact fields under Meta's keys
  * (full_name, first_name, last_name, email, phone_number), so public.extract_meta_lead_contact_fields fills
@@ -23,21 +29,31 @@ export const MAX_PORTAL_FIELD_KEY_LENGTH = 100;
 /** The portal's lead id and project name; the same cap as lead_data_portal_fields_check. */
 export const MAX_PORTAL_REF_LENGTH = 200;
 
+/** Why a request could not become a lead: the webhook's "reason" (400, or 415 for unsupportedType) and the log text. */
+export const PORTAL_PAYLOAD_MESSAGES = {
+  noContact: "Mobile number or email not found.",
+  notJsonObject: "The body is not a lead object.",
+  oneLeadPerRequest: "More than one lead in one request.",
+  tooManyFields: `More than ${MAX_PORTAL_LEAD_FIELDS} fields.`,
+  fieldNameTooLong: `A field name is longer than ${MAX_PORTAL_FIELD_KEY_LENGTH} characters.`,
+  unsupportedType: "The body is not JSON, form data or URL parameters.",
+} as const;
+
 /** The lead fields a company's field_mapping may add names for (e.g. {"phone": ["custMobile"]}). */
 export const PORTAL_MAPPING_FIELDS = ["full_name", "phone", "email", "project_name", "city", "query", "external_lead_id"] as const;
 type MappingField = (typeof PORTAL_MAPPING_FIELDS)[number];
 
 // For each lead field, the names that may fill it, best first. Names are compared with capitals, spaces, underscores and
-// hyphens ignored (normalizeKey), so "Mobile No", "mobile_no", "MobileNo" and "MOBILE-NO" are the same name. The spec's
-// lists, then a few obvious variants. Only the best one present with an answer is used.
+// hyphens ignored (normalizeKey), so "Mobile No", "mobile_no", "MobileNo" and "MOBILE-NO" are the same name. Only the
+// best one present with a usable answer is used.
 const ALIAS_NAMES: Record<MappingField, readonly string[]> = {
-  full_name: ["name", "full_name", "cust_name", "customer_name", "lead_name", "sender_name", "buyer_name", "fullname"],
-  phone: ["mobile", "phone", "contact_no", "mobile_no", "phone_number", "sender_mobile", "contact", "mobile_number", "phone_no", "contact_number", "cust_mobile", "customer_mobile"],
-  email: ["email", "email_id", "cust_email", "sender_email", "email_address", "customer_email"],
+  full_name: ["name", "full_name", "fullname", "cust_name", "customer_name", "lead_name", "buyer_name", "user_name", "contact_name", "client_name", "contact_person", "sender_name"],
+  phone: ["mobile", "phone", "mobile_number", "phone_number", "mobile_no", "phone_no", "contact_number", "contact_no", "contact", "cust_mobile", "cust_phone", "customer_mobile", "customer_phone", "user_mobile", "user_phone", "sender_mobile"],
+  email: ["email", "email_id", "email_address", "cust_email", "customer_email", "user_email", "sender_email"],
   project_name: ["project_name", "project", "property_name", "listing_name", "pid", "property_id"],
-  city: ["city", "locality", "location"],
-  query: ["query", "remark", "remarks", "message", "comments", "description", "requirement"],
-  external_lead_id: ["lead_id", "inquiry_id", "enquiry_id", "response_id", "id"],
+  city: ["city", "city_name", "locality", "locality_name", "location", "area", "area_name"],
+  query: ["message", "query", "remark", "remarks", "comment", "comments", "requirement", "requirements", "need", "description", "details"],
+  external_lead_id: ["lead_id", "enquiry_id", "inquiry_id", "response_id", "need_id", "lead_ref", "lead_reference", "id"],
 };
 const DEFAULT_ALIASES = normalizedAliases(ALIAS_NAMES);
 
@@ -55,6 +71,21 @@ const NAME_PARTS: ReadonlyArray<readonly [string, readonly string[]]> = [["first
 // A field that was not picked keeps its own name, unless that name is one of these: it would then be read as the lead's
 // name / email / phone (or shadow the project, city or query), so it is prefixed, as the other lead mappers do.
 const RESERVED_NAMES = new Set(["full_name", "first_name", "last_name", "email", "phone_number", "project_name", "city", "query"]);
+
+// Checking a field by its value (findByValue), when no known name holds the phone or the email.
+const PHONE_VALUE_CHARACTERS = /^[+\d\s().-]+$/;
+const INDIAN_MOBILE = /^[6-9]\d{9}$/;
+// An email value: at most 254 characters (the longest valid address), checked without a regex so a long value can
+// never make it slow.
+const MAX_EMAIL_LENGTH = 254;
+// A field with one of these name words is never read as a phone or email by value: an id, a reference, or an amount.
+// A word ending in "id" ("pid", "leadid") or starting / ending with "ref" ("refno", "leadref") counts as an id too.
+const NOT_CONTACT_WORDS = new Set(["id", "ids", "price", "budget", "amount", "cost", "rate", "area", "size", "sqft", "pincode", "pin", "zip", "zipcode", "postcode"]);
+// Name words that point to a phone / an email, when more than one field has a usable value. A long word may start a
+// name word ("mobileno", "contactperson"); a short one must be the whole word ("ph", "wa"), so "graph" never counts.
+const PHONE_HINT_PREFIXES = ["mobile", "phone", "contact", "whatsapp", "cell"];
+const PHONE_HINT_WORDS = new Set(["mob", "ph", "tel", "wa", "no", "number", "num"]);
+const EMAIL_HINT_PREFIXES = ["email", "mail"];
 
 export interface PortalLeadRequest {
   method: "GET" | "POST";
@@ -87,7 +118,8 @@ export class PortalLeadPayloadError extends Error {
   }
 }
 
-type Entry = { key: string; normalized: string; raw: unknown; values: string[] };
+/** One field. `nested`: unpacked from a JSON object inside the request (data={...}, {"customer": {...}}). */
+type Entry = { key: string; normalized: string; raw: unknown; values: string[]; nested: boolean };
 
 /** True when the request carries nothing at all (a URL check): no URL parameter and an empty body. */
 export function isEmptyPortalRequest(request: PortalLeadRequest): boolean {
@@ -95,8 +127,8 @@ export function isEmptyPortalRequest(request: PortalLeadRequest): boolean {
 }
 
 /** Parses and maps one portal request. Throws PortalLeadPayloadError for anything unusable. */
-export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, options: { fieldMapping?: unknown } = {}): MappedPortalLead {
-  const body = request.method === "GET" ? emptyRecord() : parseBody(request.contentType, request.rawBody);
+export async function mapPortalLead(portal: PortalId, request: PortalLeadRequest, options: { fieldMapping?: unknown } = {}): Promise<MappedPortalLead> {
+  const body = request.method === "GET" ? emptyRecord() : await parseBody(request.contentType, request.rawBody);
   const rawPayload = emptyRecord();
   for (const [key, value] of Object.entries(request.query)) rawPayload[key] = value;
   for (const [key, value] of Object.entries(body)) rawPayload[key] = value;
@@ -106,13 +138,26 @@ export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, opti
     ...Object.entries(body).map(([key, value]): [string, unknown, string] => [key, value, request.rawBody]),
     ...Object.entries(request.query).filter(([key]) => !Object.hasOwn(body, key)).map(([key, value]): [string, unknown, string] => [key, value, ""]),
   ];
-  const entries = sources.flatMap(([rawKey, raw, rawText]): Entry[] => {
-    const key = rawKey.trim();
-    if (!key) return [];
-    if (key.length > MAX_PORTAL_FIELD_KEY_LENGTH) throw new PortalLeadPayloadError(`Field names must be ${MAX_PORTAL_FIELD_KEY_LENGTH} characters or fewer.`);
-    return [{ key, normalized: normalizeKey(key), raw, values: toValues(raw, rawKey, rawText) }];
-  });
-  if (entries.length > MAX_PORTAL_LEAD_FIELDS) throw new PortalLeadPayloadError(`Send ${MAX_PORTAL_LEAD_FIELDS} fields or fewer.`);
+  const topLevel: Entry[] = [];
+  const nested: Array<[string, unknown, string]> = [];
+  for (const [rawKey, raw, rawText] of sources) {
+    const object = jsonObjectOf(raw);
+    // A field holding a JSON object: its keys are read as fields (below); the field itself stays in the raw copy only.
+    if (object) {
+      for (const [key, value] of Object.entries(object)) nested.push([key, value, typeof raw === "string" ? raw : rawText]);
+      continue;
+    }
+    const entry = toEntry(rawKey, raw, rawText, false);
+    if (entry) topLevel.push(entry);
+  }
+  const topNames = new Set(topLevel.map((entry) => entry.normalized));
+  const unpacked = nested
+    .map(([key, raw, rawText]) => toEntry(key, raw, rawText, true))
+    .filter((entry): entry is Entry => entry !== null && !topNames.has(entry.normalized));
+  // Two unpacked objects may carry the same name: the first one wins.
+  const seen = new Set<string>();
+  const entries = [...topLevel, ...unpacked.filter((entry) => !seen.has(entry.normalized) && seen.add(entry.normalized))];
+  if (entries.length > MAX_PORTAL_LEAD_FIELDS) throw new PortalLeadPayloadError(PORTAL_PAYLOAD_MESSAGES.tooManyFields);
 
   const aliases = withOverrides(options.fieldMapping);
   const picked = new Set<Entry>();
@@ -124,12 +169,26 @@ export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, opti
     return undefined;
   };
 
-  // The portal's lead id: one short value. A list, an object or an over-long value stays a form answer instead.
-  const refEntry = pick(aliases.external_lead_id, (entry) => entry.values.length === 1 && (entry.raw === null || typeof entry.raw !== "object") && entry.values[0].length <= MAX_PORTAL_REF_LENGTH);
+  // The portal's lead id: one short value. A list, an object or an over-long value stays a form answer instead. A bare
+  // "id" inside a nested object ({"customer": {"id": ...}}) is the id of something else (the buyer, the listing):
+  // taking it would make the same person's next enquiry look like a retry and drop it, so only a top-level "id" counts.
+  const refEntry = pick(aliases.external_lead_id, (entry) => entry.values.length === 1 && (entry.raw === null || typeof entry.raw !== "object") && entry.values[0].length <= MAX_PORTAL_REF_LENGTH
+    && !(entry.nested && entry.normalized === "id"));
   const storedAs = new Map<Entry, string>();
+  const accept: Partial<Record<MappingField, (entry: Entry) => boolean>> = {
+    // "NA", "-" or "none" is no phone: it stays a form answer under its own name, and the next name is tried.
+    phone: (entry) => /\d/.test(entry.values[0]),
+    email: (entry) => entry.values[0].includes("@"),
+  };
   for (const field of ["full_name", "phone", "email", "project_name", "city", "query"] as const) {
-    const entry = pick(aliases[field]);
+    const entry = pick(aliases[field], accept[field]);
     if (entry) storedAs.set(entry, STORED_AS[field]);
+  }
+  // A phone or email sent under a name no list knows ("whatsapp", "custPh"): found by its value.
+  for (const kind of ["phone", "email"] as const) {
+    if ([...storedAs.values()].includes(STORED_AS[kind])) continue;
+    const entry = findByValue(entries.filter((candidate) => candidate !== refEntry && !picked.has(candidate)), kind);
+    if (entry) { picked.add(entry); storedAs.set(entry, STORED_AS[kind]); }
   }
   const hasFullName = [...storedAs.values()].includes("full_name");
   if (!hasFullName) {
@@ -142,15 +201,18 @@ export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, opti
   const fieldData: LeadField[] = [];
   const hasNameParts = [...storedAs.values()].some((name) => name === "first_name" || name === "last_name");
   if (!hasFullName && !hasNameParts) fieldData.push({ name: "full_name", values: [PORTALS[portal].defaultLeadName] });
+  const usedNames = new Set<string>(fieldData.map((field) => field.name));
   for (const entry of entries) {
     if (entry === refEntry || entry.values.length === 0) continue;
-    const stored = storedAs.get(entry);
-    const name = stored ?? (RESERVED_NAMES.has(entry.key) ? `question_${entry.key}` : entry.key);
+    let name = storedAs.get(entry) ?? (RESERVED_NAMES.has(entry.key) ? `question_${entry.key}` : entry.key);
+    // A top-level "Mobile" and an unpacked "mobile" are different keys; keep both answers under distinct names.
+    while (usedNames.has(name)) name = `question_${name}`;
+    usedNames.add(name);
     fieldData.push({ name, values: entry.values });
   }
 
   const answer = (name: string) => fieldData.find((field) => field.name === name)?.values.find((value) => value.trim()) ?? null;
-  if (!answer("phone_number") && !answer("email")) throw new PortalLeadPayloadError("Send mobile or email.");
+  if (!answer("phone_number") && !answer("email")) throw new PortalLeadPayloadError(PORTAL_PAYLOAD_MESSAGES.noContact);
 
   const projectName = answer("project_name");
   return {
@@ -160,6 +222,58 @@ export function mapPortalLead(portal: PortalId, request: PortalLeadRequest, opti
     rawPayload,
     enquirySummary: buildSummary(portal, hasFullName || hasNameParts ? nameOf(fieldData) : null, projectName, answer("city"), answer("query")),
   };
+}
+
+/**
+ * The one field whose value is an Indian mobile number (10 digits starting 6-9, after +91 / 91 / a leading 0, spaces,
+ * dashes, dots and brackets are removed; no letters) or an email address. A field named like an id, a reference or an
+ * amount is never used. When several fields match, the one whose name points to it ("whatsapp", "custPh", "buyerMail")
+ * is used; if that still leaves none or more than one, nothing is guessed (the same number in two fields counts once).
+ */
+function findByValue(entries: Entry[], kind: "phone" | "email"): Entry | undefined {
+  const matches = entries.filter((entry) => entry.values.length === 1 && !isNotContactName(entry.key)
+    && (kind === "phone" ? mobileDigits(entry.values[0]) !== null : isEmailValue(entry.values[0])));
+  const single = (list: Entry[]) => {
+    const distinct = new Set(list.map((entry) => (kind === "phone" ? mobileDigits(entry.values[0]) : entry.values[0].toLowerCase())));
+    return distinct.size === 1 ? list[0] : undefined;
+  };
+  return single(matches) ?? single(matches.filter((entry) => hasHint(entry.key, kind)));
+}
+
+/** True for one address shaped like name@domain.tld: one "@", no spaces, a dot inside the domain. */
+function isEmailValue(value: string): boolean {
+  if (value.length > MAX_EMAIL_LENGTH || /\s/.test(value)) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at !== value.lastIndexOf("@")) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  return dot > 0 && dot < domain.length - 1;
+}
+
+/** The 10-digit Indian mobile in a value, or null. */
+function mobileDigits(value: string): string | null {
+  if (!PHONE_VALUE_CHARACTERS.test(value)) return null;
+  let digits = value.replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  else if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  return INDIAN_MOBILE.test(digits) ? digits : null;
+}
+
+/** A field name's words: "whatsapp_no" → whatsapp, no; "custPh" → cust, ph; "PROPERTY-ID" → property, id. */
+function nameWords(key: string): string[] {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** True for a name that holds an id, a reference or an amount ("property_id", "pid", "leadRef", "budget"). */
+function isNotContactName(key: string): boolean {
+  return nameWords(key).some((word) => NOT_CONTACT_WORDS.has(word) || word.endsWith("id") || word.startsWith("ref") || word.endsWith("ref"));
+}
+
+/** True when a name word points to a phone / an email: "whatsapp_no", "custPh", "buyerContact", "buyerMail". */
+function hasHint(key: string, kind: "phone" | "email"): boolean {
+  const words = nameWords(key);
+  if (kind === "email") return words.some((word) => EMAIL_HINT_PREFIXES.some((hint) => word.startsWith(hint)));
+  return words.some((word) => PHONE_HINT_WORDS.has(word) || PHONE_HINT_PREFIXES.some((hint) => word.startsWith(hint)));
 }
 
 function buildSummary(portal: PortalId, name: string | null, project: string | null, city: string | null, query: string | null): string {
@@ -177,6 +291,31 @@ function nameOf(fieldData: LeadField[]): string | null {
   return value("full_name") ?? ([value("first_name"), value("last_name")].filter(Boolean).join(" ") || null);
 }
 
+function toEntry(rawKey: string, raw: unknown, rawText: string, nested: boolean): Entry | null {
+  const key = rawKey.trim();
+  if (!key) return null;
+  if (key.length > MAX_PORTAL_FIELD_KEY_LENGTH) throw new PortalLeadPayloadError(PORTAL_PAYLOAD_MESSAGES.fieldNameTooLong);
+  return { key, normalized: normalizeKey(key), raw, values: toValues(raw, rawKey, rawText), nested };
+}
+
+/** The object a field holds: a real JSON object, or text that is a JSON object. Null otherwise. */
+function jsonObjectOf(raw: unknown): Record<string, unknown> | null {
+  if (isPlainObject(raw)) return raw;
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  if (!text.startsWith("{")) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isPlainObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** The default names, with the company's own names (field_mapping) tried first. Anything malformed is ignored. */
 function withOverrides(fieldMapping: unknown): Record<MappingField, readonly string[]> {
   const result = { ...DEFAULT_ALIASES };
@@ -190,25 +329,54 @@ function withOverrides(fieldMapping: unknown): Record<MappingField, readonly str
   return result;
 }
 
-function parseBody(contentType: string | null, rawBody: string): Record<string, unknown> {
-  if (rawBody.trim() === "") return emptyRecord();
+async function parseBody(contentType: string | null, rawBody: string): Promise<Record<string, unknown>> {
+  const text = rawBody.replace(/^﻿/, "");
+  if (text.trim() === "") return emptyRecord();
   const mediaType = (contentType ?? "").split(";")[0].trim().toLowerCase();
-  if (mediaType === "application/x-www-form-urlencoded") return parseForm(rawBody);
-  // A missing or text/plain type is read as JSON: some senders post JSON without saying so.
-  if (mediaType === "" || mediaType === "text/plain" || mediaType === "application/json" || mediaType.endsWith("+json")) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawBody.replace(/^﻿/, ""));
-    } catch {
-      throw new PortalLeadPayloadError("Send the lead as a JSON object.");
+  if (mediaType === "multipart/form-data") return parseMultipart(contentType ?? "", text);
+
+  // JSON first, whatever the content type says.
+  const json = tryJson(text);
+  if (json.ok) {
+    const value = json.value;
+    if (isPlainObject(value)) return toRecord(value);
+    if (Array.isArray(value)) {
+      if (value.length === 1 && isPlainObject(value[0])) return toRecord(value[0]);
+      throw new PortalLeadPayloadError(PORTAL_PAYLOAD_MESSAGES.oneLeadPerRequest);
     }
-    if (Array.isArray(parsed)) throw new PortalLeadPayloadError("Send one lead per request.");
-    if (!parsed || typeof parsed !== "object") throw new PortalLeadPayloadError("Send the lead as a JSON object.");
-    const result = emptyRecord();
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) result[key] = value;
-    return result;
+    // A bare number, string, true/false or null: not a lead object; tried as form data below.
   }
-  throw new PortalLeadPayloadError("Send JSON, form data or URL parameters.", 415);
+  const trimmed = text.trim();
+  // XML / HTML, or text with no name=value pair: not a format we can read.
+  if (trimmed.startsWith("<") || !trimmed.includes("=")) {
+    throw json.ok ? new PortalLeadPayloadError(PORTAL_PAYLOAD_MESSAGES.notJsonObject) : new PortalLeadPayloadError(PORTAL_PAYLOAD_MESSAGES.unsupportedType, 415);
+  }
+  return parseForm(trimmed);
+}
+
+function tryJson(text: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** A multipart form's text fields (a file part is not a lead field and is skipped). */
+async function parseMultipart(contentType: string, text: string): Promise<Record<string, unknown>> {
+  let form: FormData;
+  try {
+    form = await new Response(text, { headers: { "content-type": contentType } }).formData();
+  } catch {
+    throw new PortalLeadPayloadError(PORTAL_PAYLOAD_MESSAGES.unsupportedType, 415);
+  }
+  const result = emptyRecord();
+  for (const [key, value] of form) {
+    if (typeof value !== "string") continue;
+    if (!Object.hasOwn(result, key)) result[key] = value;
+    else result[key] = [...(Array.isArray(result[key]) ? result[key] as unknown[] : [result[key]]), value];
+  }
+  return result;
 }
 
 /** A form post or a URL query: a repeated field becomes a list of answers. */
@@ -218,6 +386,12 @@ export function parseForm(text: string | URLSearchParams): Record<string, unknow
     if (!Object.hasOwn(result, key)) result[key] = value;
     else result[key] = [...(Array.isArray(result[key]) ? result[key] as unknown[] : [result[key]]), value];
   }
+  return result;
+}
+
+function toRecord(value: Record<string, unknown>): Record<string, unknown> {
+  const result = emptyRecord();
+  for (const [key, item] of Object.entries(value)) result[key] = item;
   return result;
 }
 

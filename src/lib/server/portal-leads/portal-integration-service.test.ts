@@ -166,23 +166,24 @@ describe("portalFailureReason", () => {
     expect(portalFailureReason("something new")).toBe("Not saved");
   });
 
-  it("labels every refusal the real mapper produces (a reworded mapper message fails here)", () => {
+  it("labels every refusal the real mapper produces (a reworded mapper message fails here)", async () => {
     const post = (rawBody: string, contentType = "application/json") => ({ method: "POST" as const, contentType, query: {}, rawBody });
-    const reasonFor = (request: ReturnType<typeof post>) => {
+    const reasonFor = async (request: ReturnType<typeof post>) => {
       try {
-        mapPortalLead("99acres", request);
+        await mapPortalLead("99acres", request);
       } catch (error) {
         if (error instanceof PortalLeadPayloadError) return portalFailureReason(error.message);
         throw error;
       }
       throw new Error("expected the mapper to refuse this request");
     };
-    expect(reasonFor(post(JSON.stringify({ name: "No Contact" })))).toBe("Mobile number or email not found");
-    expect(reasonFor(post("<lead/>", "application/xml"))).toBe("Unsupported format");
-    expect(reasonFor(post("not json"))).toBe("Unsupported format");
-    expect(reasonFor(post(JSON.stringify([{ mobile: "9876543210" }])))).toBe("Unsupported format");
-    expect(reasonFor(post(JSON.stringify(Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`f${index}`, "x"])))))).toBe("Unsupported format");
-    expect(reasonFor(post(JSON.stringify({ ["k".repeat(101)]: "x", mobile: "9876543210" })))).toBe("Unsupported format");
+    expect(await reasonFor(post(JSON.stringify({ name: "No Contact" })))).toBe("Mobile number or email not found");
+    expect(await reasonFor(post("<lead/>", "application/xml"))).toBe("Unsupported format");
+    expect(await reasonFor(post("not json"))).toBe("Unsupported format");
+    expect(await reasonFor(post("123"))).toBe("Unsupported format");
+    expect(await reasonFor(post(JSON.stringify([{ mobile: "9876543210" }, { mobile: "9123456789" }])))).toBe("Unsupported format");
+    expect(await reasonFor(post(JSON.stringify(Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`f${index}`, "x"])))))).toBe("Unsupported format");
+    expect(await reasonFor(post(JSON.stringify({ ["k".repeat(101)]: "x", mobile: "9876543210" })))).toBe("Unsupported format");
   });
 
   it("never gives an employee the URL or the raw requests", async () => {
