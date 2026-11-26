@@ -9,6 +9,36 @@ export const metadata: Metadata = {
 
 const LABEL = HOUSING_LABEL;
 
+/** A sample Housing.com lead in JSON. */
+const SAMPLE_BODY = `{
+  "name": "Ravi Kumar",
+  "mobile": "9876543210",
+  "email": "ravi@example.com",
+  "city": "Chennai"
+}`;
+
+/** The field names the Housing.com reader knows (src/lib/server/housing/housing-lead-mapper.ts), in its order. */
+const FIELD_ROWS: ReadonlyArray<readonly [string, string]> = [
+  ["Mobile", "mobile, phone, mobile_number, phone_number, mobile_no, phone_no, contact_number, contact_no, contact, cust_mobile, cust_phone, customer_mobile, customer_phone, user_mobile, user_phone, sender_mobile"],
+  ["Email", "email, email_id, email_address, cust_email, customer_email, user_email, sender_email"],
+  ["Name", "name, full_name, fullname, cust_name, customer_name, lead_name, buyer_name, user_name, contact_name, client_name, contact_person, sender_name, or first_name + last_name"],
+  ["City", "city, city_name, locality, locality_name, location, area, area_name"],
+  ["Message", "message, query, remark, remarks, comment, comments, requirement, requirements, need, description, details"],
+  ["Project", "project_name, project, property_name, listing_name, society_name, property_title, listing_title, property_id, listing_id, project_id"],
+  ["Enquiry ID", "lead_id, enquiry_id, inquiry_id, response_id, need_id, lead_ref, lead_reference, id"],
+];
+
+/** The replies of the Housing.com webhook (src/app/api/webhooks/housing/[token]/route.ts). */
+const REPLY_ROWS: ReadonlyArray<readonly [string, string, string]> = [
+  ["200", "Lead saved (\"success\": true, \"accepted\": 1). A repeat phone number also gets this, with \"duplicate\": true; it is added as a note on the existing lead.", "–"],
+  ["400", "Not saved: the lead is not readable.", "\"Mobile number or email not found.\", \"The body is not a lead object.\", \"More than one lead in one request.\", \"More than 100 fields.\" or \"A field name is longer than 100 characters.\""],
+  ["404", "Not saved: wrong, replaced or expired URL.", "\"Unknown webhook.\""],
+  ["413", "Not saved: the request is over 64 KB.", "\"Payload too large.\""],
+  ["415", "Not saved: not JSON, form data or URL parameters (for example XML).", "\"The body is not JSON, form data or URL parameters.\""],
+  ["429", "Not saved: too many leads this minute. Send again after the Retry-After seconds.", "\"Too many leads. Try again shortly.\""],
+  ["500", "Not saved: a failure on our side. Safe to send again.", "\"Temporary failure, retry later.\""],
+];
+
 export default function HousingDocsPage() {
   return (
     <article className={styles.doc}>
@@ -48,6 +78,73 @@ export default function HousingDocsPage() {
             </div>
           </li>
         </ol>
+      </section>
+
+      <section className={styles.section}>
+        <h2>How {LABEL} can send a lead</h2>
+        <p>Share this section with your {LABEL} account manager.</p>
+        <ul>
+          <li>Method: <strong>POST or GET</strong>.</li>
+          <li>Format: <strong>JSON</strong>, <strong>form data</strong> (normal or multipart) or <strong>URL parameters</strong>. JSON is read even when it is sent with another content type.</li>
+          <li><strong>One lead per request.</strong> One lead inside a list (<code>[{"{...}"}]</code>) is accepted; 2 or more leads in one request are not.</li>
+          <li>A lead inside one field is accepted, for example <code>data={"{...}"}</code> or <code>{"{\"customer\": {...}}"}</code>.</li>
+          <li>Limits: a request up to <strong>64 KB</strong>, up to <strong>100 fields</strong>, each field name up to <strong>100 characters</strong>.</li>
+          <li>Every lead needs <strong>a mobile number or an email</strong>.</li>
+        </ul>
+        <pre className={styles.pre}>{SAMPLE_BODY}</pre>
+      </section>
+
+      <section className={styles.section}>
+        <h2>Field names we read</h2>
+        <p>Capitals, spaces, underscores and hyphens don&apos;t matter: <code>MobileNo</code>, <code>mobile_no</code> and <code>Mobile Number</code> are the same.</p>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th scope="col">Lead detail</th>
+              <th scope="col">Field names</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FIELD_ROWS.map(([detail, names]) => (
+              <tr key={detail}>
+                <th scope="row">{detail}</th>
+                <td>{names}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p>
+          <strong>Other field names:</strong> if the mobile number or email is sent under a name not in this list (for
+          example <code>whatsapp</code>), it is still found from its value: a 10-digit Indian mobile number or an email
+          address. When it is not clear which field holds it, nothing is guessed. The lead is refused only when neither a
+          mobile number nor an email is found.
+        </p>
+      </section>
+
+      <section className={styles.section}>
+        <h2>What AgentzPro replies</h2>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th scope="col">Code</th>
+              <th scope="col">Meaning</th>
+              <th scope="col">Reason sent</th>
+            </tr>
+          </thead>
+          <tbody>
+            {REPLY_ROWS.map(([code, meaning, reason]) => (
+              <tr key={code}>
+                <th scope="row">{code}</th>
+                <td>{meaning}</td>
+                <td>{reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p>
+          <strong>A lead is saved only when the reply is 200 with <code>&quot;accepted&quot;: 1</code>.</strong> Every
+          other reply has <code>&quot;success&quot;: false</code> and a <code>&quot;reason&quot;</code>.
+        </p>
       </section>
 
       <section className={styles.section} aria-labelledby="regenerate-warning">
