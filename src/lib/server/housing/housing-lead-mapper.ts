@@ -14,9 +14,10 @@ import { HOUSING_DEFAULT_LEAD_NAME, HOUSING_LABEL } from "@/lib/housing/housing"
  *     level: its keys are read as lead fields too. A top-level field always wins over an unpacked one of the same name.
  * The URL parameters and the body are merged ({ ...query, ...body }: a body value wins) and each lead field is taken
  * from the first name present in its list below (capitals, spaces, underscores and hyphens in a name do not matter).
+ * When no known name holds the phone (or the email), the other fields are checked by their value (see findByValue).
  *
  * Answers are stored in lead_data's field_data shape ([{ name, values }]) under the keys lead_data's contact trigger
- * reads (full_name, email, phone_number), so name / email / phone, phone cleanup (+91, 91, a leading 0, spaces, dashes:
+ * reads (full_name, first_name, last_name, email, phone_number), so name / email / phone, phone cleanup (+91, 91, a leading 0, spaces, dashes:
  * the shared database normaliser), same-phone matching, search and the drawer's Form answers work on a Housing.com lead
  * like on every other lead. The phone is kept as Housing.com sent it (trimmed), so the drawer shows it unchanged.
  * Housing.com's own enquiry id is kept out of field_data: it goes to lead_data.housing_lead_ref. Every field not on the
@@ -29,8 +30,8 @@ export const MAX_HOUSING_FIELD_KEY_LENGTH = 100;
 export const MAX_HOUSING_REF_LENGTH = 200;
 
 /**
- * Why a request could not become a lead, as written to the request log. The webhook still answers 200 for these (the
- * raw copy is saved and listed under Failed requests), so Housing.com never switches the URL off for repeated errors.
+ * Why a request could not become a lead: the webhook's "reason" (400, or 415 for unsupportedType) and the text written
+ * to the request log. The raw copy is kept and listed under Failed requests. Nothing here is ever answered 200.
  */
 export const HOUSING_PAYLOAD_MESSAGES = {
   noContact: "Mobile number or email not found.",
@@ -50,13 +51,13 @@ type MappingField = (typeof HOUSING_MAPPING_FIELDS)[number];
 // best one present with a usable answer is used. A listing or property id fills the project only when no project name
 // is sent, and is never the enquiry id.
 const ALIAS_NAMES: Record<MappingField, readonly string[]> = {
-  full_name: ["name", "full_name", "customer_name", "lead_name", "buyer_name", "user_name", "contact_name", "client_name", "sender_name"],
-  phone: ["mobile", "phone", "mobile_number", "phone_number", "mobile_no", "phone_no", "contact_number", "contact_no", "user_phone", "user_mobile", "customer_mobile", "customer_phone", "contact"],
-  email: ["email", "email_id", "email_address", "user_email", "customer_email", "sender_email"],
+  full_name: ["name", "full_name", "fullname", "cust_name", "customer_name", "lead_name", "buyer_name", "user_name", "contact_name", "client_name", "contact_person", "sender_name"],
+  phone: ["mobile", "phone", "mobile_number", "phone_number", "mobile_no", "phone_no", "contact_number", "contact_no", "contact", "cust_mobile", "cust_phone", "customer_mobile", "customer_phone", "user_mobile", "user_phone", "sender_mobile"],
+  email: ["email", "email_id", "email_address", "cust_email", "customer_email", "user_email", "sender_email"],
   project_name: ["project_name", "project", "property_name", "listing_name", "society_name", "property_title", "listing_title", "property_id", "listing_id", "project_id"],
-  city: ["city", "city_name", "locality", "location", "locality_name"],
-  query: ["message", "query", "remarks", "remark", "comments", "comment", "requirement", "description"],
-  external_lead_id: ["lead_id", "enquiry_id", "inquiry_id", "lead_ref", "lead_reference", "id"],
+  city: ["city", "city_name", "locality", "locality_name", "location", "area", "area_name"],
+  query: ["message", "query", "remark", "remarks", "comment", "comments", "requirement", "requirements", "need", "description", "details"],
+  external_lead_id: ["lead_id", "enquiry_id", "inquiry_id", "response_id", "need_id", "lead_ref", "lead_reference", "id"],
 };
 const DEFAULT_ALIASES = normalizedAliases(ALIAS_NAMES);
 
@@ -73,6 +74,23 @@ const STORED_AS: Record<Exclude<MappingField, "external_lead_id">, string> = {
 // A field that was not picked keeps its own name, unless that name is one lead_data's contact trigger reads (or would
 // shadow the project, city or query): it is then prefixed, so it can never be taken as the lead's name, email or phone.
 const RESERVED_NAMES = new Set(["full_name", "first_name", "last_name", "email", "phone_number", "project_name", "city", "query"]);
+// first_name / last_name are used only when no full name is sent.
+const NAME_PARTS: ReadonlyArray<readonly [string, readonly string[]]> = [["first_name", [normalizeKey("first_name")]], ["last_name", [normalizeKey("last_name")]]];
+
+// Checking a field by its value (findByValue), when no known name holds the phone or the email.
+const PHONE_VALUE_CHARACTERS = /^[+\d\s().-]+$/;
+const INDIAN_MOBILE = /^[6-9]\d{9}$/;
+// An email value: at most 254 characters (the longest valid address), checked without a regex so a long value can
+// never make it slow.
+const MAX_EMAIL_LENGTH = 254;
+// A field with one of these name words is never read as a phone or email by value: an id, a reference, or an amount.
+// A word ending in "id" ("pid", "leadid") or starting / ending with "ref" ("refno", "leadref") counts as an id too.
+const NOT_CONTACT_WORDS = new Set(["id", "ids", "price", "budget", "amount", "cost", "rate", "area", "size", "sqft", "pincode", "pin", "zip", "zipcode", "postcode"]);
+// Name words that point to a phone / an email, when more than one field has a usable value. A long word may start a
+// name word ("mobileno", "contactperson"); a short one must be the whole word ("ph", "wa"), so "graph" never counts.
+const PHONE_HINT_PREFIXES = ["mobile", "phone", "contact", "whatsapp", "cell"];
+const PHONE_HINT_WORDS = new Set(["mob", "ph", "tel", "wa", "no", "number", "num"]);
+const EMAIL_HINT_PREFIXES = ["email", "mail"];
 
 export interface HousingLeadRequest {
   method: "GET" | "POST";
@@ -168,10 +186,23 @@ export async function mapHousingLead(request: HousingLeadRequest, options: { fie
     const entry = pick(aliases[field], accept[field]);
     if (entry) storedAs.set(entry, STORED_AS[field]);
   }
-  const hasName = [...storedAs.values()].includes("full_name");
+  // A phone or email sent under a name no list knows ("whatsapp", "custPh"): found by its value.
+  for (const kind of ["phone", "email"] as const) {
+    if ([...storedAs.values()].includes(STORED_AS[kind])) continue;
+    const entry = findByValue(entries.filter((candidate) => candidate !== refEntry && !picked.has(candidate)), kind);
+    if (entry) { picked.add(entry); storedAs.set(entry, STORED_AS[kind]); }
+  }
+  const hasFullName = [...storedAs.values()].includes("full_name");
+  if (!hasFullName) {
+    for (const [stored, names] of NAME_PARTS) {
+      const entry = pick(names);
+      if (entry) storedAs.set(entry, stored);
+    }
+  }
+  const hasNameParts = [...storedAs.values()].some((name) => name === "first_name" || name === "last_name");
 
   const fieldData: LeadField[] = [];
-  if (!hasName) fieldData.push({ name: "full_name", values: [HOUSING_DEFAULT_LEAD_NAME] });
+  if (!hasFullName && !hasNameParts) fieldData.push({ name: "full_name", values: [HOUSING_DEFAULT_LEAD_NAME] });
   const usedNames = new Set<string>(fieldData.map((field) => field.name));
   for (const entry of entries) {
     if (entry === refEntry || entry.values.length === 0) continue;
@@ -191,8 +222,65 @@ export async function mapHousingLead(request: HousingLeadRequest, options: { fie
     projectName: projectName ? projectName.slice(0, MAX_HOUSING_REF_LENGTH) : null,
     fieldData,
     rawPayload,
-    enquirySummary: buildSummary(hasName ? answer("full_name") : null, projectName, answer("city"), answer("query")),
+    enquirySummary: buildSummary(hasFullName || hasNameParts ? nameOf(fieldData) : null, projectName, answer("city"), answer("query")),
   };
+}
+
+/**
+ * The one field whose value is an Indian mobile number (10 digits starting 6-9, after +91 / 91 / a leading 0, spaces,
+ * dashes, dots and brackets are removed; no letters) or an email address. A field named like an id, a reference or an
+ * amount is never used. When several fields match, the one whose name points to it ("whatsapp", "custPh", "buyerMail")
+ * is used; if that still leaves none or more than one, nothing is guessed (the same number in two fields counts once).
+ */
+function findByValue(entries: Entry[], kind: "phone" | "email"): Entry | undefined {
+  const matches = entries.filter((entry) => entry.values.length === 1 && !isNotContactName(entry.key)
+    && (kind === "phone" ? mobileDigits(entry.values[0]) !== null : isEmailValue(entry.values[0])));
+  const single = (list: Entry[]) => {
+    const distinct = new Set(list.map((entry) => (kind === "phone" ? mobileDigits(entry.values[0]) : entry.values[0].toLowerCase())));
+    return distinct.size === 1 ? list[0] : undefined;
+  };
+  return single(matches) ?? single(matches.filter((entry) => hasHint(entry.key, kind)));
+}
+
+/** True for one address shaped like name@domain.tld: one "@", no spaces, a dot inside the domain. */
+function isEmailValue(value: string): boolean {
+  if (value.length > MAX_EMAIL_LENGTH || /\s/.test(value)) return false;
+  const at = value.indexOf("@");
+  if (at <= 0 || at !== value.lastIndexOf("@")) return false;
+  const domain = value.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  return dot > 0 && dot < domain.length - 1;
+}
+
+/** The 10-digit Indian mobile in a value, or null. */
+function mobileDigits(value: string): string | null {
+  if (!PHONE_VALUE_CHARACTERS.test(value)) return null;
+  let digits = value.replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  else if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  return INDIAN_MOBILE.test(digits) ? digits : null;
+}
+
+/** A field name's words: "whatsapp_no" → whatsapp, no; "custPh" → cust, ph; "PROPERTY-ID" → property, id. */
+function nameWords(key: string): string[] {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** True for a name that holds an id, a reference or an amount ("property_id", "pid", "leadRef", "budget"). */
+function isNotContactName(key: string): boolean {
+  return nameWords(key).some((word) => NOT_CONTACT_WORDS.has(word) || word.endsWith("id") || word.startsWith("ref") || word.endsWith("ref"));
+}
+
+/** True when a name word points to a phone / an email: "whatsapp_no", "custPh", "buyerContact", "buyerMail". */
+function hasHint(key: string, kind: "phone" | "email"): boolean {
+  const words = nameWords(key);
+  if (kind === "email") return words.some((word) => EMAIL_HINT_PREFIXES.some((hint) => word.startsWith(hint)));
+  return words.some((word) => PHONE_HINT_WORDS.has(word) || PHONE_HINT_PREFIXES.some((hint) => word.startsWith(hint)));
+}
+
+function nameOf(fieldData: LeadField[]): string | null {
+  const value = (name: string) => fieldData.find((field) => field.name === name)?.values[0]?.trim() || null;
+  return value("full_name") ?? ([value("first_name"), value("last_name")].filter(Boolean).join(" ") || null);
 }
 
 function toEntry(rawKey: string, raw: unknown, rawText: string, nested: boolean): Entry | null {
