@@ -24,3 +24,42 @@ it("warns clearly not to click Regenerate URL without a real reason: old URL 7 d
   expect(warning).toHaveTextContent("If your account manager connects the new URL within 7 days, both the old URL and the new URL work until the 7 days end. The same lead will not be added twice to your account. You can also ask your account manager to remove the old URL and add the new URL.");
   expect(screen.queryByText(/stops working at once/)).not.toBeInTheDocument();
 });
+
+it("tells the account manager how MagicBricks can send a lead: POST or GET, JSON, form data or URL parameters, one lead, the limits", () => {
+  render(<MagicbricksDocsPage />);
+  const section = screen.getByRole("heading", { level: 2, name: "How MagicBricks can send a lead" }).closest("section")!;
+  expect(section).toHaveTextContent("Method: POST or GET.");
+  expect(section).toHaveTextContent("Format: JSON, form data (normal or multipart) or URL parameters. JSON is read even when it is sent with another content type.");
+  expect(section).toHaveTextContent("One lead per request. One lead inside a list ([{...}]) is accepted; 2 or more leads in one request are not.");
+  expect(section).toHaveTextContent('A lead inside one field is accepted, for example data={...} or {"customer": {...}}.');
+  expect(section).toHaveTextContent("Limits: a request up to 64 KB, up to 100 fields, each field name up to 100 characters.");
+  expect(section).toHaveTextContent("Every lead needs a mobile number or an email.");
+});
+
+it("lists the field names the MagicBricks reader knows, with its own Project names", () => {
+  render(<MagicbricksDocsPage />);
+  const section = screen.getByRole("heading", { level: 2, name: "Field names we read" }).closest("section")!;
+  const row = (detail: string) => within(section).getByRole("rowheader", { name: detail }).closest("tr")!;
+  expect(row("Mobile")).toHaveTextContent("mobile, phone, mobile_number, phone_number, mobile_no, phone_no, contact_number, contact_no, contact, cust_mobile, cust_phone, customer_mobile, customer_phone, user_mobile, user_phone, sender_mobile");
+  expect(row("Email")).toHaveTextContent("email, email_id, email_address, cust_email, customer_email, user_email, sender_email");
+  expect(row("Name")).toHaveTextContent("or first_name + last_name");
+  expect(row("Project")).toHaveTextContent("project, project_name, property_name, listing_name, property_id, pid");
+  expect(row("Enquiry ID")).toHaveTextContent("lead_id, enquiry_id, inquiry_id, response_id, need_id, lead_ref, lead_reference, id");
+  expect(section).toHaveTextContent("When it is not clear which field holds it, nothing is guessed. The lead is refused only when neither a mobile number nor an email is found.");
+});
+
+it("lists every reply code with its reason, and says a lead is saved only on 200 with accepted 1", () => {
+  render(<MagicbricksDocsPage />);
+  const section = screen.getByRole("heading", { level: 2, name: "What AgentzPro replies" }).closest("section")!;
+  const row = (code: string) => within(section).getByRole("rowheader", { name: code }).closest("tr")!;
+  expect(row("200")).toHaveTextContent('Lead saved ("success": true, "accepted": 1)');
+  expect(row("400")).toHaveTextContent('"Mobile number or email not found."');
+  expect(row("400")).toHaveTextContent('"More than one lead in one request."');
+  expect(row("404")).toHaveTextContent('"Unknown webhook."');
+  expect(row("413")).toHaveTextContent('"Payload too large."');
+  expect(row("415")).toHaveTextContent('"The body is not JSON, form data or URL parameters."');
+  expect(row("429")).toHaveTextContent('"Too many leads. Try again shortly."');
+  expect(row("500")).toHaveTextContent('"Temporary failure, retry later."');
+  expect(section).toHaveTextContent('A lead is saved only when the reply is 200 with "accepted": 1.');
+  expect(screen.queryByText(/Housing\.com|Sulekha|99acres/)).not.toBeInTheDocument();
+});
