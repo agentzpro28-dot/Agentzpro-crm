@@ -715,6 +715,32 @@ describe("Sulekha leads", () => {
   });
 });
 
+describe("NoBroker leads", () => {
+  it("shows the NoBroker lead id, 'NoBroker' as the page and the project as the ad, with no ad id", async () => {
+    const nobroker = { leadgen_id: null, google_lead_id: null, google_campaign_id: null, custom_lead_ref: null, custom_source_name: null, portal_lead_ref: null, portal_project_name: null, magicbricks_lead_ref: null, magicbricks_project_name: null, housing_lead_ref: null, housing_project_name: null, nobroker_lead_ref: null, nobroker_project_name: null, lead_phone: "9876543210", ad_id: null, ad_name: null, lead_created_time: "2026-11-26T10:00:00Z", status: "New Lead", label: "Warm", label_source: "ai", lead_source: "nobroker", facebook_pages: null };
+    const leads = builder({ data: [
+      { ...nobroker, id: "lead-1", lead_name: "Test Customer", nobroker_lead_ref: "NB-ENQ-1", nobroker_project_name: "Prestige Lakeside" },
+      { ...nobroker, id: "lead-2", lead_name: "NoBroker Lead", nobroker_lead_ref: null, nobroker_project_name: null },
+    ], error: null, count: 2 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
+    expect(leads.select.mock.calls[0][0]).toContain("nobroker_lead_ref,nobroker_project_name");
+    expect(leads.select.mock.calls[0][0]).not.toContain("nobroker_integration_id");
+    expect(result.items[0]).toMatchObject({ source: "nobroker", leadgenId: "NB-ENQ-1", facebookPage: "NoBroker", adName: "Prestige Lakeside", adId: null });
+    expect(result.items[1]).toMatchObject({ source: "nobroker", leadgenId: "", facebookPage: "NoBroker", adName: "-" });
+  });
+
+  it("filters the NoBroker source by lead_platform, like any platform", async () => {
+    const leads = builder({ data: [], error: null, count: 0 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    await queryLeads(context, { source: "nobroker" });
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.eq).toHaveBeenCalledWith("lead_platform", "nobroker");
+  });
+});
+
 describe("the company timezone of a signed-in request", () => {
   it("uses the timezone the login check already read, with no second read of the company row", async () => {
     const leads = builder({ data: [], error: null, count: 0 });
@@ -837,6 +863,7 @@ describe("countLeadsSavedSince (the background new-lead pop-up)", () => {
     ["a call-in lead as the telecaller's", { lead_source: "telecaller", lead_platform: "facebook" }, "Telecaller"],
     ["a Google Ads lead", { lead_source: "google", lead_platform: "google_ads" }, "Google Ads"],
     ["a Sulekha lead", { lead_source: "sulekha", lead_platform: "sulekha" }, "Sulekha"],
+    ["a NoBroker lead", { lead_source: "nobroker", lead_platform: "nobroker" }, "NoBroker"],
     ["an unknown platform neutrally", { lead_source: "x", lead_platform: "something_new" }, "New lead"],
   ])("names %s", async (_name, row, source) => {
     mocks.from.mockReturnValue(builder({ data: [{ id: "lead-1", lead_name: "Ravi", created_at: "2026-11-25T09:59:58.1+00:00", ...row }], error: null, count: 1 }));

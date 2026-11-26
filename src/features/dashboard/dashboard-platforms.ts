@@ -105,6 +105,18 @@ export const DASHBOARD_PLATFORMS = [
     emptyState: { title: "No Sulekha leads match these filters", description: "Enquiries Sulekha sends to your Sulekha webhook URL show up here instantly." },
   },
   {
+    // Enquiries NoBroker pushes to the company's NoBroker URL. Totals, status, label and timeline, so
+    // get_dashboard_platform_stats_v2 needs no change. An enquiry whose phone was already in the CRM is a note on that
+    // lead, not a NoBroker lead, so it is not counted here.
+    id: "nobroker",
+    label: "NoBroker",
+    group: null,
+    items: null,
+    filters: { page: false, ad: false, campaign: false },
+    connection: null,
+    emptyState: { title: "No NoBroker leads match these filters", description: "Enquiries NoBroker sends to your NoBroker webhook URL show up here instantly." },
+  },
+  {
     id: "telecaller",
     label: "Telecaller",
     group: null,
