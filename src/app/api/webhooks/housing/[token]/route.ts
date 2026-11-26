@@ -6,12 +6,12 @@ export const runtime = "nodejs";
 
 // A company's Housing.com webhook: Housing.com pushes each enquiry here, server to server, as POST (JSON, form data,
 // multipart, or JSON sent as text) or GET URL parameters. The [token] in the URL is the secret and picks the company.
-// Every answer says how many leads were accepted ("accepted": 1 or 0; one lead per request).
-// 200 {"success":true,"accepted":1,"message":"Lead received"} = saved ("duplicate": true when it was already saved, or
-// added as a note to the lead that has this phone); 200 {"success":true,"accepted":0,"message":"Received","reason":...}
-// = kept, but no lead could be read from it, and why (listed under Failed requests in the card); 404 / 413
-// {"success":false,"accepted":0} = wrong URL / too large; 429 = too many leads this minute (Retry-After); 500 = our
-// failure, safe to retry.
+// Every answer says how many leads were accepted ("accepted": 1 or 0; one lead per request) and, when none was, why
+// ("reason"). 200 only when the lead was saved: {"success":true,"accepted":1,"message":"Lead received"} ("duplicate":
+// true when it was already saved, or added as a note to the lead that has this phone); 4XX {"success":false,
+// "accepted":0,"reason":...} = not saved (400 no lead could be read, e.g. no mobile or email; 415 not JSON, form data
+// or URL parameters; both listed under Failed requests in the card; 404 wrong URL; 413 too large); 429 = too many leads
+// this minute (Retry-After); 500 = our failure, safe to retry.
 type Params = { params: Promise<{ token: string }> };
 
 export async function POST(request: Request, { params }: Params): Promise<Response> {
@@ -48,14 +48,12 @@ async function handle(request: Request, method: "GET" | "POST", params: Params["
 
 function respond(result: HousingIntakeResult): Response {
   if (result.status === 200) {
-    // Kept but not readable as a lead: still 200 (see HousingIntakeResult), with the reason.
-    if ("reason" in result) return NextResponse.json({ success: true, accepted: 0, message: result.message, reason: result.reason });
     // "Webhook ready" (an empty URL check) saves nothing.
     if (!("duplicate" in result)) return NextResponse.json({ success: true, accepted: 0, message: result.message });
     return NextResponse.json(result.duplicate ? { success: true, accepted: 1, message: result.message, duplicate: true } : { success: true, accepted: 1, message: result.message });
   }
   if (result.status === 429) {
-    return NextResponse.json({ success: false, accepted: 0, message: result.message }, { status: 429, headers: { "retry-after": String(result.retryAfterSeconds) } });
+    return NextResponse.json({ success: false, accepted: 0, reason: result.message }, { status: 429, headers: { "retry-after": String(result.retryAfterSeconds) } });
   }
-  return NextResponse.json({ success: false, accepted: 0, message: result.message }, { status: result.status });
+  return NextResponse.json({ success: false, accepted: 0, reason: result.message }, { status: result.status });
 }
