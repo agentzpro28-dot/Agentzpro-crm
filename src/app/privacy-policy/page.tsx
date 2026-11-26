@@ -9,11 +9,11 @@ import styles from "./privacy-policy.module.css";
 export const metadata: Metadata = {
   title: { absolute: "Privacy Policy | AgentzPro" },
   description:
-    "Privacy Policy for AgentzPro, operated by AI Digital Tamizha: what data we collect from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha, your own tools (webhook) and your team, how we use, store, share and protect it, how Google user data is handled under the Limited Use requirements, and how to delete your data.",
+    "Privacy Policy for AgentzPro, operated by AI Digital Tamizha: what data we collect from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha, NoBroker, your own tools (webhook) and your team, how we use, store, share and protect it, how Google user data is handled under the Limited Use requirements, and how to delete your data.",
 };
 
 const EFFECTIVE_DATE = "September 14, 2026";
-const LAST_UPDATED = "November 24, 2026";
+const LAST_UPDATED = "November 26, 2026";
 const GOOGLE_USER_DATA_POLICY_URL = "https://developers.google.com/terms/api-services-user-data-policy";
 
 const TOC = [
@@ -60,7 +60,7 @@ export default function PrivacyPolicyPage() {
             &quot;our&quot;) collects, uses, stores, shares and protects information in connection with{" "}
             <strong>AgentzPro</strong> (the &quot;Service&quot;), our multi-tenant, business-to-business lead
             management CRM. AgentzPro receives leads from our customers&apos; Meta (Facebook and Instagram) Lead Ads,
-            Google Ads lead forms, 99acres, MagicBricks, Housing.com, Sulekha and their own tools (webhook), and lets their teams manage and follow up on those
+            Google Ads lead forms, 99acres, MagicBricks, Housing.com, Sulekha, NoBroker and their own tools (webhook), and lets their teams manage and follow up on those
             leads. This is our own privacy
             policy for our own product. By using the Service, you agree to the practices described here.
           </p>
@@ -131,7 +131,7 @@ export default function PrivacyPolicyPage() {
                 (&quot;companies&quot; or &quot;tenants&quot;) use the Service under their own separate accounts. Each
                 company may connect its own Facebook Pages to receive Meta Lead Ads leads, connect its own Google Ads
                 accounts with Google Sign-In, set up its own Google Ads lead form webhook, create its own 99acres
-                webhook URL, create its own MagicBricks webhook URL, create its own Housing.com webhook URL, create its own Sulekha webhook URL, and create its own webhook for leads from its own tools. Each company&apos;s data is kept separate, so one company can never see
+                webhook URL, create its own MagicBricks webhook URL, create its own Housing.com webhook URL, create its own Sulekha webhook URL, create its own NoBroker webhook URL, and create its own webhook for leads from its own tools. Each company&apos;s data is kept separate, so one company can never see
                 another company&apos;s data.
               </p>
               <p>
@@ -285,20 +285,36 @@ export default function PrivacyPolicyPage() {
                 company, and the leads are delivered only to that company.
               </p>
 
-              <h3 className={styles.subheading}>3.12 Leads your team adds (call-in leads)</h3>
+              <h3 className={styles.subheading}>3.12 Leads from NoBroker</h3>
+              <p>
+                A company owner can create a NoBroker webhook URL and ask the company&apos;s NoBroker account manager to
+                send the company&apos;s NoBroker enquiries to it. An enquiry may include the person&apos;s name, phone
+                number and email address, the property or project they asked about, their city or locality, their
+                budget, their message and NoBroker&apos;s own enquiry ID. If the phone number already belongs to one of
+                the company&apos;s leads, the enquiry is added to that lead&apos;s history instead of creating a second
+                lead. We also keep a copy of each request exactly as NoBroker sent it, with its technical headers (any
+                passwords or keys in them are hidden), the sender&apos;s IP address and browser details, so that an
+                enquiry that could not be saved is never lost and we can fix the problem. The company owner sees the
+                time and reason of each failed request; the copies themselves are used only by our support team to fix
+                a problem. Copies of saved enquiries are deleted automatically after 30 days, and copies that could not
+                be saved are deleted after 90 days. Each NoBroker webhook URL contains a long secret code unique to the
+                company, and the leads are delivered only to that company.
+              </p>
+
+              <h3 className={styles.subheading}>3.13 Leads your team adds (call-in leads)</h3>
               <p>
                 Team members can add a lead by hand, for example when someone calls the company. They may enter the
                 person&apos;s name, phone number, email address, the platform and ad the person came from, the call
                 date and notes.
               </p>
 
-              <h3 className={styles.subheading}>3.13 Work your team does in the CRM</h3>
+              <h3 className={styles.subheading}>3.14 Work your team does in the CRM</h3>
               <p>
                 We store the statuses, notes, follow-up tasks, reminders and lead assignments your team records, and a
                 timeline of changes to each lead, so your team can see the history of every lead.
               </p>
 
-              <h3 className={styles.subheading}>3.14 Browser notifications</h3>
+              <h3 className={styles.subheading}>3.15 Browser notifications</h3>
               <p>
                 If a team member turns on reminder notifications, their browser gives us a push subscription (a
                 web address and encryption keys for that browser). We use it only to send that person their task
@@ -306,13 +322,13 @@ export default function PrivacyPolicyPage() {
                 browser settings.
               </p>
 
-              <h3 className={styles.subheading}>3.15 Billing information</h3>
+              <h3 className={styles.subheading}>3.16 Billing information</h3>
               <p>
                 When a company subscribes, our payment partner Razorpay collects the payment details. We do not receive
                 or store card or bank details. We keep the plan, number of seats, billing period and payment status.
               </p>
 
-              <h3 className={styles.subheading}>3.16 Technical information</h3>
+              <h3 className={styles.subheading}>3.17 Technical information</h3>
               <p>
                 When you use the Service, we and our hosting providers automatically process technical information
                 such as IP address, browser and device type, server logs and the actions taken in the app. We use it to
@@ -329,7 +345,7 @@ export default function PrivacyPolicyPage() {
                 <li>receive, show and organise each company&apos;s leads, and let its team update, assign and follow up on them;</li>
                 <li>show which campaign, ad group or ad each lead came from;</li>
                 <li>
-                  give each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha or a company&apos;s webhook an AI label (Hot, Warm or Cold) to help the company decide who
+                  give each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha, NoBroker or a company&apos;s webhook an AI label (Hot, Warm or Cold) to help the company decide who
                   to contact first. Before
                   a lead is labelled, we remove the name, email address and phone number from the form&apos;s contact
                   fields, as described in Section 5;
@@ -539,6 +555,8 @@ export default function PrivacyPolicyPage() {
                 The copies of Housing.com requests described in Section 3.10 are deleted after 30 days, or after 90
                 days if the enquiry could not be saved.
                 The copies of Sulekha requests described in Section 3.11 are deleted after 30 days, or after 90 days if
+                the enquiry could not be saved.
+                The copies of NoBroker requests described in Section 3.12 are deleted after 30 days, or after 90 days if
                 the enquiry could not be saved.
               </p>
             </section>

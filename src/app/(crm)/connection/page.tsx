@@ -6,6 +6,7 @@ import { HousingIntegrationCard } from "@/features/connection/housing-integratio
 import { MagicbricksIntegrationCard } from "@/features/connection/magicbricks-integration-card";
 import { PortalIntegrationCard } from "@/features/connection/portal-integration-card";
 import { SulekhaIntegrationCard } from "@/features/connection/sulekha-integration-card";
+import { NoBrokerIntegrationCard } from "@/features/connection/nobroker-integration-card";
 
 export const metadata: Metadata = {
   title: "Integrations",
@@ -20,5 +21,6 @@ export default function ConnectionPage() {
     <MagicbricksIntegrationCard />
     <HousingIntegrationCard />
     <SulekhaIntegrationCard />
+    <NoBrokerIntegrationCard />
   </div>;
 }

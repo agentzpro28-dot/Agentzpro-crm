@@ -3,6 +3,7 @@ import type { PortalId, PortalIntegrationOverview, PortalIntegrationStatus } fro
 import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 import type { HousingOverview } from "@/lib/housing/housing";
 import type { SulekhaOverview } from "@/lib/sulekha/sulekha";
+import type { NoBrokerOverview } from "@/lib/nobroker/nobroker";
 
 type ApiErrorPayload = { error?: { message?: string; code?: string; details?: Record<string, unknown> } };
 
@@ -144,6 +145,12 @@ export async function getSulekhaStatus(): Promise<SulekhaOverview> { return shar
 /** The Integrations card's Sulekha view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
 export async function getSulekhaOverview(): Promise<SulekhaOverview> { return request<SulekhaOverview>("/api/integrations/sulekha?details=1"); }
 export async function createSulekhaIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/sulekha", { method: "POST", body: "{}" }); }
+
+/** Whether this company created its NoBroker URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
+export async function getNoBrokerStatus(): Promise<NoBrokerOverview> { return sharedConnectionCheck<NoBrokerOverview>("/api/integrations/nobroker", false); }
+/** The Integrations card's NoBroker view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
+export async function getNoBrokerOverview(): Promise<NoBrokerOverview> { return request<NoBrokerOverview>("/api/integrations/nobroker?details=1"); }
+export async function createNoBrokerIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/nobroker", { method: "POST", body: "{}" }); }
 
 /** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
 export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }

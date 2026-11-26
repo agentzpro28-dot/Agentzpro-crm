@@ -12,6 +12,7 @@ const INTEGRATION_LINKS = [
   { href: "/docs/integrations/magicbricks", label: "MagicBricks" },
   { href: "/docs/integrations/housing", label: "Housing.com" },
   { href: "/docs/integrations/sulekha", label: "Sulekha" },
+  { href: "/docs/integrations/nobroker", label: "NoBroker" },
 ] as const;
 
 function NavLinks({ activeHref }: { activeHref: string }) {

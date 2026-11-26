@@ -9,11 +9,11 @@ import styles from "../privacy-policy/privacy-policy.module.css";
 export const metadata: Metadata = {
   title: { absolute: "Terms of Service | AgentzPro" },
   description:
-    "Terms of Service for AgentzPro, operated by AI Digital Tamizha: accounts, free trial, subscriptions, cancellation and refunds, the Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha and webhook integrations, acceptable use, and your data.",
+    "Terms of Service for AgentzPro, operated by AI Digital Tamizha: accounts, free trial, subscriptions, cancellation and refunds, the Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha, NoBroker and webhook integrations, acceptable use, and your data.",
 };
 
 const EFFECTIVE_DATE = "October 15, 2026";
-const LAST_UPDATED = "November 24, 2026";
+const LAST_UPDATED = "November 26, 2026";
 
 const TOC = [
   ["agreement", "1. Agreement to these terms"],
@@ -29,16 +29,17 @@ const TOC = [
   ["magicbricks", "11. MagicBricks integration"],
   ["webhook", "12. Webhook integration"],
   ["sulekha", "13. Sulekha integration"],
-  ["ai-labels", "14. AI lead labels"],
-  ["your-data", "15. Your data and leads"],
-  ["acceptable-use", "16. Acceptable use"],
-  ["suspension", "17. Suspension and termination"],
-  ["availability", "18. Service availability and changes"],
-  ["disclaimer", "19. Disclaimer of warranties"],
-  ["liability", "20. Limitation of liability"],
-  ["governing-law", "21. Governing law"],
-  ["changes", "22. Changes to these terms"],
-  ["contact", "23. Contact us"],
+  ["nobroker", "14. NoBroker integration"],
+  ["ai-labels", "15. AI lead labels"],
+  ["your-data", "16. Your data and leads"],
+  ["acceptable-use", "17. Acceptable use"],
+  ["suspension", "18. Suspension and termination"],
+  ["availability", "19. Service availability and changes"],
+  ["disclaimer", "20. Disclaimer of warranties"],
+  ["liability", "21. Limitation of liability"],
+  ["governing-law", "22. Governing law"],
+  ["changes", "23. Changes to these terms"],
+  ["contact", "24. Contact us"],
 ] as const;
 
 function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
@@ -66,7 +67,7 @@ export default function TermsPage() {
             <strong>AI Digital Tamizha</strong> (&quot;we&quot;, &quot;us&quot; or &quot;our&quot;), the owner and
             operator of <strong>AgentzPro</strong> (the &quot;Service&quot;), a multi-tenant, business-to-business lead
             management CRM that receives leads from Meta (Facebook and Instagram) Lead Ads, Google Ads, 99acres,
-            MagicBricks, Housing.com, Sulekha and your own tools (webhook). Please read them
+            MagicBricks, Housing.com, Sulekha, NoBroker and your own tools (webhook). Please read them
             carefully. By creating an account or using the Service, you agree to these Terms and to our{" "}
             <Link className={styles.link} href="/privacy-policy">Privacy Policy</Link>.
           </p>
@@ -96,11 +97,11 @@ export default function TermsPage() {
               <p>AgentzPro lets a business:</p>
               <ul>
                 <li>receive leads from its own Meta Lead Ads (Facebook and Instagram) and Google Ads lead forms;</li>
-                <li>receive property enquiries from its own 99acres, MagicBricks and Housing.com accounts;</li>
+                <li>receive property enquiries from its own 99acres, MagicBricks, Housing.com and NoBroker accounts;</li>
                 <li>receive customer enquiries from its own Sulekha account;</li>
                 <li>receive leads from its own tools through a webhook, such as website forms, Zapier or Pabbly;</li>
                 <li>add leads by hand, such as people who call the business;</li>
-                <li>see an AI label (Hot, Warm or Cold) on each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha or its webhook;</li>
+                <li>see an AI label (Hot, Warm or Cold) on each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha, NoBroker or its webhook;</li>
                 <li>organise and track leads, assign them to team members, and record statuses, notes and follow-up tasks with reminders; and</li>
                 <li>view a dashboard of its leads and download it as a PDF.</li>
               </ul>
@@ -417,11 +418,42 @@ export default function TermsPage() {
               </ul>
             </section>
 
-            <section id="ai-labels" className={styles.section}>
+            <section id="nobroker" className={styles.section}>
               <span className={styles.sectionNum}>14</span>
+              <h2 className={styles.sectionTitle}>NoBroker integration</h2>
+              <ul>
+                <li>
+                  <strong>Your own account only.</strong> You may set up the NoBroker integration only for a NoBroker
+                  account that your company owns or is authorised to use.
+                </li>
+                <li>
+                  <strong>Keep your webhook URL private.</strong> The NoBroker webhook URL shown on the Integrations page
+                  is for your company only. Give it only to your NoBroker account manager.
+                </li>
+                <li>
+                  <strong>Regenerate the URL only if it has leaked.</strong> When you regenerate it, a new webhook URL is
+                  created and the old URL keeps working for only 7 days. After 7 days, the old URL will not accept any
+                  leads. Within these 7 days, you must ask your NoBroker account manager to connect the new URL. If the new
+                  URL is not connected within 7 days, your NoBroker leads will be lost. AgentzPro is not responsible for
+                  these lost leads; it is fully your responsibility.
+                </li>
+                <li>
+                  <strong>NoBroker&apos;s terms apply.</strong> Your use of NoBroker is governed by your own agreement with
+                  NoBroker. If NoBroker changes or stops lead delivery, this part of the Service may stop working. We are
+                  not responsible for NoBroker&apos;s actions or availability.
+                </li>
+                <li>
+                  <strong>Not affiliated with NoBroker.</strong> AgentzPro is an independent product and is not endorsed
+                  by or affiliated with NoBroker.
+                </li>
+              </ul>
+            </section>
+
+            <section id="ai-labels" className={styles.section}>
+              <span className={styles.sectionNum}>15</span>
               <h2 className={styles.sectionTitle}>AI lead labels</h2>
               <p>
-                AgentzPro gives each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha or your webhook an
+                AgentzPro gives each lead from Meta, Google Ads, 99acres, MagicBricks, Housing.com, Sulekha, NoBroker or your webhook an
                 automatic AI label (Hot, Warm or Cold) to help you decide who to contact first. Leads your team adds by
                 hand (call-in leads) are not labelled. Labels are suggestions made by an AI model and can be wrong. You decide how to treat each lead.
                 How lead data is prepared and sent for labelling, with names, email addresses and phone numbers removed,
@@ -430,7 +462,7 @@ export default function TermsPage() {
             </section>
 
             <section id="your-data" className={styles.section}>
-              <span className={styles.sectionNum}>15</span>
+              <span className={styles.sectionNum}>16</span>
               <h2 className={styles.sectionTitle}>Your data and leads</h2>
               <ul>
                 <li>
@@ -455,7 +487,7 @@ export default function TermsPage() {
             </section>
 
             <section id="acceptable-use" className={styles.section}>
-              <span className={styles.sectionNum}>16</span>
+              <span className={styles.sectionNum}>17</span>
               <h2 className={styles.sectionTitle}>Acceptable use</h2>
               <p>You agree not to:</p>
               <ul>
@@ -470,7 +502,7 @@ export default function TermsPage() {
             </section>
 
             <section id="suspension" className={styles.section}>
-              <span className={styles.sectionNum}>17</span>
+              <span className={styles.sectionNum}>18</span>
               <h2 className={styles.sectionTitle}>Suspension and termination</h2>
               <p>
                 We may suspend or end your access if you break these Terms, if a payment is not made, if your use puts
@@ -481,7 +513,7 @@ export default function TermsPage() {
             </section>
 
             <section id="availability" className={styles.section}>
-              <span className={styles.sectionNum}>18</span>
+              <span className={styles.sectionNum}>19</span>
               <h2 className={styles.sectionTitle}>Service availability and changes</h2>
               <p>
                 We work to keep the Service running, but we do not promise it will be uninterrupted or error free. It may
@@ -492,7 +524,7 @@ export default function TermsPage() {
             </section>
 
             <section id="disclaimer" className={styles.section}>
-              <span className={styles.sectionNum}>19</span>
+              <span className={styles.sectionNum}>20</span>
               <h2 className={styles.sectionTitle}>Disclaimer of warranties</h2>
               <p>
                 The Service is provided &quot;as is&quot; and &quot;as available&quot;. To the fullest extent permitted
@@ -504,7 +536,7 @@ export default function TermsPage() {
             </section>
 
             <section id="liability" className={styles.section}>
-              <span className={styles.sectionNum}>20</span>
+              <span className={styles.sectionNum}>21</span>
               <h2 className={styles.sectionTitle}>Limitation of liability</h2>
               <p>
                 To the fullest extent permitted by law, AI Digital Tamizha is not liable for any indirect, incidental,
@@ -516,7 +548,7 @@ export default function TermsPage() {
             </section>
 
             <section id="governing-law" className={styles.section}>
-              <span className={styles.sectionNum}>21</span>
+              <span className={styles.sectionNum}>22</span>
               <h2 className={styles.sectionTitle}>Governing law</h2>
               <p>
                 These Terms are governed by the laws of India. Any dispute arising from them or from the Service is
@@ -525,7 +557,7 @@ export default function TermsPage() {
             </section>
 
             <section id="changes" className={styles.section}>
-              <span className={styles.sectionNum}>22</span>
+              <span className={styles.sectionNum}>23</span>
               <h2 className={styles.sectionTitle}>Changes to these terms</h2>
               <p>
                 We may update these Terms from time to time. When we do, we change the &quot;Last updated&quot; date at
@@ -535,7 +567,7 @@ export default function TermsPage() {
             </section>
 
             <section id="contact" className={styles.section}>
-              <span className={styles.sectionNum}>23</span>
+              <span className={styles.sectionNum}>24</span>
               <h2 className={styles.sectionTitle}>Contact us</h2>
               <p>If you have any questions about these Terms, please contact us:</p>
               <div className={styles.contactCard}>
