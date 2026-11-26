@@ -7,10 +7,10 @@ export const runtime = "nodejs";
 // A company's real-estate portal webhook (99acres today): the portal pushes each enquiry here, server to server, as
 // POST JSON, POST form data or GET URL parameters. The [token] in the URL is the secret and picks the company; [portal]
 // must match the integration it belongs to. Every answer says how many leads were accepted ("accepted": 1 or 0; one
-// lead per request) and, when none was, why ("message"). 200 {"success":true,"accepted":1,"message":"Lead received"} =
-// saved ("duplicate": true when it was already saved, or added as a note to the lead that has this phone); 4XX
-// {"success":false,"accepted":0} = never accepted as sent; 429 = too many leads this minute (Retry-After); 500 = our
-// failure, safe to retry.
+// lead per request) and, when none was, why ("reason"). 200 only when the lead was saved: {"success":true,"accepted":1,
+// "message":"Lead received"} ("duplicate": true when it was already saved, or added as a note to the lead that has this
+// phone); 4XX {"success":false,"accepted":0,"reason":...} = not saved, never accepted as sent; 429 = too many leads this
+// minute (Retry-After); 500 = our failure, safe to retry.
 type Params = { params: Promise<{ portal: string; token: string }> };
 
 export async function POST(request: Request, { params }: Params): Promise<Response> {
@@ -52,7 +52,7 @@ function respond(result: PortalIntakeResult): Response {
     return NextResponse.json(result.duplicate ? { success: true, accepted: 1, message: result.message, duplicate: true } : { success: true, accepted: 1, message: result.message });
   }
   if (result.status === 429) {
-    return NextResponse.json({ success: false, accepted: 0, message: result.message }, { status: 429, headers: { "retry-after": String(result.retryAfterSeconds) } });
+    return NextResponse.json({ success: false, accepted: 0, reason: result.message }, { status: 429, headers: { "retry-after": String(result.retryAfterSeconds) } });
   }
-  return NextResponse.json({ success: false, accepted: 0, message: result.message }, { status: result.status });
+  return NextResponse.json({ success: false, accepted: 0, reason: result.message }, { status: result.status });
 }

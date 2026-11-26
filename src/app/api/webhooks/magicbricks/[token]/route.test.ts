@@ -40,7 +40,7 @@ describe("/api/webhooks/magicbricks/[token]", () => {
     mocks.ingest.mockResolvedValueOnce({ status: 400, message: "Send mobile or email." });
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Send mobile or email." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Send mobile or email." });
   });
 
   it("answers 429 with Retry-After", async () => {
@@ -48,13 +48,13 @@ describe("/api/webhooks/magicbricks/[token]", () => {
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("7");
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Too many leads. Try again shortly." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Too many leads. Try again shortly." });
   });
 
   it("refuses a body declared over 64 KB before reading it", async () => {
     const response = await POST(post("{}", { "content-type": "application/json", "content-length": String(64 * 1024 + 1) }), params());
     expect(response.status).toBe(413);
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Payload too large." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Payload too large." });
     expect(mocks.ingest).not.toHaveBeenCalled();
   });
 
@@ -68,7 +68,7 @@ describe("/api/webhooks/magicbricks/[token]", () => {
     mocks.ingest.mockRejectedValueOnce(new Error("boom"));
     const response = await POST(post("{}"), params());
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, message: "Temporary failure, retry later." });
+    await expect(response.json()).resolves.toEqual({ success: false, accepted: 0, reason: "Temporary failure, retry later." });
   });
 
   it("never saves anything on HEAD", async () => {
