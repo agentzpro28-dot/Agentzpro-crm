@@ -18,7 +18,7 @@ export type CustomWebhookResult =
   | { status: 400 | 404 | 413 | 415 | 500; message: string }
   | { status: 429; message: string; retryAfterSeconds: number };
 
-type WebhookRow = { id: string; tenant_id: string; is_active: boolean };
+type WebhookRow = { id: string; tenant_id: string; is_active: boolean; paused_at: string | null };
 
 const UNKNOWN_WEBHOOK = "Unknown webhook.";
 const TEMPORARY_FAILURE = "Temporary failure, retry later.";
@@ -36,12 +36,13 @@ export class CustomLeadWebhookService {
     // The company comes only from the URL token; nothing in the body can choose it.
     const db = getSupabaseAdminClient();
     const { data, error } = await db.from("custom_lead_webhooks")
-      .select("id,tenant_id,is_active")
+      .select("id,tenant_id,is_active,paused_at")
       .eq("url_token_hash", hashCustomWebhookToken(urlToken))
       .maybeSingle();
     if (error) return failure("WEBHOOK_LOOKUP_FAILED");
     const webhook = data as WebhookRow | null;
-    if (!webhook || !webhook.is_active) return { status: 404, message: UNKNOWN_WEBHOOK };
+    // Stopped or paused by the owner: refused like a wrong URL, and nothing is read, logged or saved.
+    if (!webhook || !webhook.is_active || webhook.paused_at) return { status: 404, message: UNKNOWN_WEBHOOK };
 
     const rate = await checkCustomWebhookRate(webhook.id);
     if (!rate.allowed) {

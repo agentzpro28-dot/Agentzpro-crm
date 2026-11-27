@@ -1,13 +1,14 @@
 "use client";
 
-import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, Unplug, Webhook, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, Pause, Play, RefreshCw, Unplug, Webhook, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import { formatDateTime } from "@/lib/date-utils";
-import { createCustomWebhook, getCustomWebhookOverview, stopCustomWebhook, type CustomWebhookOverview } from "@/services/crm-api-client";
+import { createCustomWebhook, getCustomWebhookOverview, setCustomWebhookPaused, stopCustomWebhook, type CustomWebhookOverview } from "@/services/crm-api-client";
+import styles from "./custom-webhook-connection-card.module.css";
 
-type Busy = "create" | "replace" | "stop" | null;
+type Busy = "create" | "replace" | "stop" | "pause" | "resume" | null;
 
 /** What a tool sends: the fields the webhook reads by name. Any other field is saved with the lead as it is. */
 export const SAMPLE_WEBHOOK_BODY = JSON.stringify({
@@ -30,6 +31,7 @@ export function CustomWebhookConnectionCard() {
   const [message, setMessage] = useState<{ tone: "success" | "danger" | "warning"; text: string } | null>(null);
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [stoppedNotice, setStoppedNotice] = useState(false);
+  const [confirmPause, setConfirmPause] = useState(false);
   const [copied, setCopied] = useState<"url" | "sample" | null>(null);
   const [showUrl, setShowUrl] = useState(false);
   const urlInputId = useId();
@@ -71,10 +73,11 @@ export function CustomWebhookConnectionCard() {
 
   const canManage = overview?.canManage === true;
   const webhook = overview?.webhook ?? null;
+  const paused = webhook?.paused === true;
 
   return <section className="panel integration-card integration-card--webhook" aria-labelledby="custom-webhook-title"><div className="panel__body stack">
     <div className="section-title"><IntegrationCardTitle id="custom-webhook-title" icon={Webhook} title="Webhook" description="Receive leads from any tool that can send a POST request: website form plugins, Zapier, Pabbly or your own software." guide={{ href: "/docs/integrations/webhook", text: "Read the setup guide before you create your webhook URL" }} />
-      {overview ? <StatusBadge tone={overview.hasWebhook ? "success" : overview.webhookStopped ? "danger" : "info"}>{overview.hasWebhook ? "Receiving leads" : overview.webhookStopped ? "Disconnected" : "Not set up"}</StatusBadge> : null}
+      {overview ? paused ? <StatusBadge tone="warning">Paused</StatusBadge> : <StatusBadge tone={overview.hasWebhook ? "success" : overview.webhookStopped ? "danger" : "info"}>{overview.hasWebhook ? "Receiving leads" : overview.webhookStopped ? "Disconnected" : "Not set up"}</StatusBadge> : null}
     </div>
     {message ? <Notice tone={message.tone} title={message.text} /> : null}
     {isLoading ? <LoadingState label="Loading webhook details" /> : null}
@@ -94,18 +97,20 @@ export function CustomWebhookConnectionCard() {
           </div>
           <p className="field-help">Phone or email is required. Any other field, such as city or budget, is saved with the lead. A lead sent again with the same lead_id is not saved twice.</p>
         </div>
-        {webhook.lastLeadAt ? <div className="google-arrival">
+        {webhook.lastLeadAt && !paused ? <div className="google-arrival">
           <strong className="google-arrival__status">Leads arriving<Check aria-hidden="true" size={18} /></strong>
           <span className="field-help">Last lead {formatDateTime(webhook.lastLeadAt)}</span>
-        </div> : <div className="meta-list"><div className="meta-item"><span>Last lead</span><strong>None yet</strong></div></div>}
-        <div className="button-group">
+        </div> : <div className="meta-list"><div className="meta-item"><span>Last lead</span><strong>{webhook.lastLeadAt ? formatDateTime(webhook.lastLeadAt) : "None yet"}</strong></div></div>}
+        {paused ? <p className={styles.pausedLine}>Lead delivery paused<Pause aria-hidden="true" size={18} /></p> : null}
+        {confirmReplace ? <span className="field-help">The old URL stops working at once. Paste the new URL into every tool that sends leads.</span> : null}
+        <div className={`button-group ${styles.actionRow}`}>
           {confirmReplace ? <>
-            <span className="field-help">The old URL stops working at once. Paste the new URL into every tool that sends leads.</span>
             <button className="button button--danger" type="button" disabled={busy === "replace"} onClick={() => void run("replace", async () => { await createCustomWebhook(); await reload(); setConfirmReplace(false); setShowUrl(false); setMessage({ tone: "success", text: "New URL created. Paste it into your tools." }); })}>{busy === "replace" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Replace URL</button>
             <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(false)}><X aria-hidden="true" size={18} />Cancel</button>
-          </> : <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Replace URL</button>}
-        </div>
-        <div className="button-group">
+          </> : <button className="button" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Replace URL</button>}
+          {paused
+            ? <button className={`button ${styles.resumeButton}`} type="button" disabled={busy === "resume"} onClick={() => void run("resume", async () => { await setCustomWebhookPaused(false); await reload(); })}>{busy === "resume" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}Resume</button>
+            : <button className={`button ${styles.pauseButton}`} type="button" disabled={busy === "pause"} onClick={() => setConfirmPause(true)}>{busy === "pause" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Pause aria-hidden="true" size={18} />}Pause</button>}
           <button className="button button--danger" type="button" disabled={busy === "stop"} onClick={() => void run("stop", async () => { await stopCustomWebhook(); setConfirmReplace(false); await reload(); setStoppedNotice(true); })}>{busy === "stop" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Unplug aria-hidden="true" size={18} />}Stop receiving webhook leads</button>
         </div>
       </> : overview.webhookStopped ? <>
@@ -117,6 +122,9 @@ export function CustomWebhookConnectionCard() {
         <div className="button-group"><button className="button" type="button" disabled={busy === "create"} onClick={() => void run("create", async () => { await createCustomWebhook(); await reload(); })}>{busy === "create" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <KeyRound aria-hidden="true" size={18} />}Create webhook URL</button></div>
       </>}
       {stoppedNotice ? <WebhookStoppedPopup onOk={() => setStoppedNotice(false)} /> : null}
+      {confirmPause ? <PauseWebhookPopup
+        onCancel={() => setConfirmPause(false)}
+        onOk={() => { setConfirmPause(false); void run("pause", async () => { await setCustomWebhookPaused(true); await reload(); }); }} /> : null}
     </div> : null}
   </div></section>;
 }
@@ -132,6 +140,26 @@ function WebhookStoppedPopup({ onOk }: { onOk: () => void }) {
       <h4 id={titleId}>Webhook leads stopped</h4>
       <p>AgentzPro now refuses leads sent to this webhook URL. Remove the URL from your tools.</p>
       <button type="button" className="mvp-invite-popup__ok" ref={okRef} onClick={onOk}>OK</button>
+    </div>
+  </div>;
+}
+
+/**
+ * Asks before webhook leads are paused: Cancel at the top (or Esc) changes nothing; OK pauses. Focus starts on Cancel,
+ * so a stray Enter never pauses leads.
+ */
+function PauseWebhookPopup({ onCancel, onOk }: { onCancel: () => void; onOk: () => void }) {
+  const titleId = useId();
+  const textId = useId();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { cancelRef.current?.focus(); }, []);
+  return <div className="mvp-invite-popup__backdrop" onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }}>
+    <div className={`mvp-invite-popup ${styles.pausePopup}`} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={textId}>
+      <button type="button" className={styles.pauseCancel} ref={cancelRef} onClick={onCancel}><X aria-hidden="true" size={16} />Cancel</button>
+      <span className={`mvp-invite-popup__icon ${styles.pauseIcon}`} aria-hidden="true"><Pause size={28} /></span>
+      <h4 id={titleId}>Pause webhook leads?</h4>
+      <p id={textId}>While paused, every lead sent to your webhook is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving webhook leads in your CRM again.</p>
+      <button type="button" className="mvp-invite-popup__ok" onClick={onOk}>OK</button>
     </div>
   </div>;
 }

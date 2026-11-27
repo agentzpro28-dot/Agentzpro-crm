@@ -60,6 +60,7 @@ describe("shared connection checks", () => {
       () => client.stopGoogleAdsWebhook(),
       () => client.createCustomWebhook(),
       () => client.stopCustomWebhook(),
+      () => client.setCustomWebhookPaused(true),
     ];
     for (const [index, run] of change.entries()) {
       await Promise.all([client.getConnectionOverview(), client.getGoogleAdsOverview(), client.getCustomWebhookOverview()]);
