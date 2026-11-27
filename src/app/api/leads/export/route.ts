@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createErrorResponse, parseJsonBody } from "@/app/api/meta/_lib/route-utils";
-import { ASSIGNEE_FILTER_SHORTCUTS, GOOGLE_CAMPAIGN_ID_PATTERN, LEAD_LABELS, LEAD_SOURCES, LEAD_STATUSES } from "@/features/leads/lead-options";
+import { ASSIGNEE_FILTER_SHORTCUTS, GOOGLE_CAMPAIGN_ID_PATTERN, LEAD_LABELS, LEAD_SOURCE_LABELS, LEAD_SOURCES, LEAD_STATUSES } from "@/features/leads/lead-options";
 import { getLeadsCursor, queryLeads, resolveTenantTimezone, type LeadRow, type PaginatedLeadRows } from "@/lib/server/lead-query-service";
 import { resolveTenantRequestContext } from "@/lib/server/tenant-context";
 
 const requestSchema = z.object({ search: z.string().max(200).optional(), quickFilter: z.enum(["all", "today", "month"]).optional(), dateFrom: z.string().optional(), dateTo: z.string().optional(), pageRecordId: z.string().uuid().optional(), adId: z.string().min(1).max(100).or(z.literal("unattributed")).optional(), campaignId: z.string().regex(GOOGLE_CAMPAIGN_ID_PATTERN).or(z.literal("unattributed")).optional(), status: z.enum(LEAD_STATUSES).optional(), label: z.enum(LEAD_LABELS).optional(), assignee: z.union([z.enum(ASSIGNEE_FILTER_SHORTCUTS), z.string().uuid()]).optional(), source: z.enum(LEAD_SOURCES).optional(), sortField: z.enum(["leadName", "leadDate"]).optional(), sortDirection: z.enum(["asc", "desc"]).optional() }).strict();
-const HEADER = "Lead ID,Lead Name,Lead Date,Status,Second Status,Label,Email,Phone,Facebook Page,Ad Name,Ad ID,Assigned To";
+const HEADER = "Lead ID,Lead Name,Lead Date,Status,Label,Email,Phone,Lead Platform,Page,Ad Name,Ad ID,Assigned To";
 /** Rows per read: Supabase's API answers at most 1,000 rows per request by default (its "Max rows" setting). */
 const EXPORT_PAGE_ROWS = 1000;
 
@@ -58,31 +58,14 @@ export async function POST(request: Request) {
   return new NextResponse(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename=leads-${new Date().toISOString().slice(0, 10)}.csv` } });
 }
 
-function csvRow(row: LeadRow, date: Intl.DateTimeFormat): string {
-  return [row.leadgenId, row.leadName, date.format(new Date(row.leadDate)), row.status, shownSecondStatus(row), row.label, row.email, row.phone, row.source === "telecaller" ? null : row.facebookPage, exportAdName(row), row.adId, row.assigneeName].map(csvValue).join(",");
-}
 /**
- * A call-in lead's Ad Name cell stays empty. So does a webhook lead's when its tool sent no "source", and a 99acres
- * lead's when the portal sent no project: the table shows a "-" placeholder there, which csvValue's formula guard would
- * otherwise write as '-.
+ * One file row. Lead Platform names every lead's platform (the Source filter's label). Only a Facebook lead has a
+ * Page and an Ad ID, and only Facebook and Google Ads leads have an Ad Name (the ad; for Google Ads the campaign), so
+ * those cells stay empty for every other platform. The second status is not part of the file.
  */
-function exportAdName(row: { source: string; adName: string }): string | null {
-  if (row.source === "telecaller") return null;
-  if ((row.source === "custom_webhook" || row.source === "99acres") && row.adName === "-") return null;
-  // A MagicBricks lead's too, when MagicBricks sent no project.
-  if (row.source === "magicbricks" && row.adName === "-") return null;
-  // A Housing.com lead's too, when Housing.com sent no project.
-  if (row.source === "housing" && row.adName === "-") return null;
-  // A Sulekha lead's too, when Sulekha sent no service.
-  if (row.source === "sulekha" && row.adName === "-") return null;
-  // A NoBroker lead's too, when NoBroker sent no project.
-  if (row.source === "nobroker" && row.adName === "-") return null;
-  // An OLX Home lead's too, when OLX Home sent no project.
-  if (row.source === "olx_home" && row.adName === "-") return null;
-  return row.adName;
-}
-/** The second status, left empty when it is the same as the main status (the table shows that status once too). */
-function shownSecondStatus(row: { status: string; secondStatus?: string | null }): string | null {
-  return row.secondStatus && row.secondStatus !== row.status ? row.secondStatus : null;
+function csvRow(row: LeadRow, date: Intl.DateTimeFormat): string {
+  const isFacebook = row.source === "facebook";
+  const hasAdName = isFacebook || row.source === "google_ads";
+  return [row.leadgenId, row.leadName, date.format(new Date(row.leadDate)), row.status, row.label, row.email, row.phone, LEAD_SOURCE_LABELS[row.source], isFacebook ? row.facebookPage : null, hasAdName ? row.adName : null, isFacebook ? row.adId : null, row.assigneeName].map(csvValue).join(",");
 }
 function csvValue(value: string | null): string { const safe = String(value ?? "").replace(/^[=+\-@\t\r]/, "'$&"); return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; }
