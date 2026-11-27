@@ -741,6 +741,32 @@ describe("NoBroker leads", () => {
   });
 });
 
+describe("OLX Home leads", () => {
+  it("shows the OLX Home lead id, 'OLX Home' as the page and the project as the ad, with no ad id", async () => {
+    const olxHome = { leadgen_id: null, google_lead_id: null, google_campaign_id: null, custom_lead_ref: null, custom_source_name: null, portal_lead_ref: null, portal_project_name: null, magicbricks_lead_ref: null, magicbricks_project_name: null, housing_lead_ref: null, housing_project_name: null, nobroker_lead_ref: null, nobroker_project_name: null, olx_home_lead_ref: null, olx_home_project_name: null, lead_phone: "9876543210", ad_id: null, ad_name: null, lead_created_time: "2026-11-27T10:00:00Z", status: "New Lead", label: "Warm", label_source: "ai", lead_source: "olx_home", facebook_pages: null };
+    const leads = builder({ data: [
+      { ...olxHome, id: "lead-1", lead_name: "Test Customer", olx_home_lead_ref: "OLX-ENQ-1", olx_home_project_name: "Prestige Lakeside" },
+      { ...olxHome, id: "lead-2", lead_name: "OLX Home Lead", olx_home_lead_ref: null, olx_home_project_name: null },
+    ], error: null, count: 2 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    const result = await queryLeads(context, {}, EXPORT_PAGE);
+    expect(leads.select.mock.calls[0][0]).toContain("olx_home_lead_ref,olx_home_project_name");
+    expect(leads.select.mock.calls[0][0]).not.toContain("olx_home_integration_id");
+    expect(result.items[0]).toMatchObject({ source: "olx_home", leadgenId: "OLX-ENQ-1", facebookPage: "OLX Home", adName: "Prestige Lakeside", adId: null });
+    expect(result.items[1]).toMatchObject({ source: "olx_home", leadgenId: "", facebookPage: "OLX Home", adName: "-" });
+  });
+
+  it("filters the OLX Home source by lead_platform, like any platform", async () => {
+    const leads = builder({ data: [], error: null, count: 0 });
+    const timezone = builder({ data: { timezone: "Asia/Kolkata" }, error: null });
+    mocks.from.mockImplementation((table: string) => table === "tenants" ? timezone : leads);
+    await queryLeads(context, { source: "olx_home" });
+    expect(leads.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(leads.eq).toHaveBeenCalledWith("lead_platform", "olx_home");
+  });
+});
+
 describe("the company timezone of a signed-in request", () => {
   it("uses the timezone the login check already read, with no second read of the company row", async () => {
     const leads = builder({ data: [], error: null, count: 0 });
@@ -864,6 +890,7 @@ describe("countLeadsSavedSince (the background new-lead pop-up)", () => {
     ["a Google Ads lead", { lead_source: "google", lead_platform: "google_ads" }, "Google Ads"],
     ["a Sulekha lead", { lead_source: "sulekha", lead_platform: "sulekha" }, "Sulekha"],
     ["a NoBroker lead", { lead_source: "nobroker", lead_platform: "nobroker" }, "NoBroker"],
+    ["an OLX Home lead", { lead_source: "olx_home", lead_platform: "olx_home" }, "OLX Home"],
     ["an unknown platform neutrally", { lead_source: "x", lead_platform: "something_new" }, "New lead"],
   ])("names %s", async (_name, row, source) => {
     mocks.from.mockReturnValue(builder({ data: [{ id: "lead-1", lead_name: "Ravi", created_at: "2026-11-25T09:59:58.1+00:00", ...row }], error: null, count: 1 }));

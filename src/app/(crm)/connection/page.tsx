@@ -7,6 +7,7 @@ import { MagicbricksIntegrationCard } from "@/features/connection/magicbricks-in
 import { PortalIntegrationCard } from "@/features/connection/portal-integration-card";
 import { SulekhaIntegrationCard } from "@/features/connection/sulekha-integration-card";
 import { NoBrokerIntegrationCard } from "@/features/connection/nobroker-integration-card";
+import { OlxHomeIntegrationCard } from "@/features/connection/olx-home-integration-card";
 
 export const metadata: Metadata = {
   title: "Integrations",
@@ -22,5 +23,6 @@ export default function ConnectionPage() {
     <HousingIntegrationCard />
     <SulekhaIntegrationCard />
     <NoBrokerIntegrationCard />
+    <OlxHomeIntegrationCard />
   </div>;
 }

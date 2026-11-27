@@ -71,7 +71,7 @@ export async function queryLeads(context: TenantRequestContext, request: LeadSea
   const pageSize = Math.min(100, Math.max(1, request.pageSize ?? 25));
   // The table needs the total for its pages; a download page does not, so it skips the exact count.
   let query = getSupabaseAdminClient().from("lead_data")
-    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,portal_lead_ref,portal_project_name,magicbricks_lead_ref,magicbricks_project_name,housing_lead_ref,housing_project_name,sulekha_lead_ref,sulekha_service_name,nobroker_lead_ref,nobroker_project_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,second_status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", exportAll ? undefined : { count: "exact" })
+    .select("id,leadgen_id,google_lead_id,google_campaign_id,custom_lead_ref,custom_source_name,portal_lead_ref,portal_project_name,magicbricks_lead_ref,magicbricks_project_name,housing_lead_ref,housing_project_name,sulekha_lead_ref,sulekha_service_name,nobroker_lead_ref,nobroker_project_name,olx_home_lead_ref,olx_home_project_name,lead_name,lead_email,lead_phone,ad_id,ad_name,lead_created_time,status,second_status,label,label_source,lead_source,came_from_platform,came_from_ref_name,assigned_user_id,facebook_pages!lead_data_facebook_page_record_id_fkey(facebook_page_name)", exportAll ? undefined : { count: "exact" })
     .eq("tenant_id", context.tenantId);
   if (exportPage) query = query.lte("created_at", exportPage.savedBefore);
   if (request.leadId) query = query.eq("id", request.leadId);
@@ -273,6 +273,11 @@ function toLeadRow(lead: Record<string, unknown>): LeadRow {
   // Only these 2 of its 3 lead_data columns are shown; nobroker_integration_id is just the link to the integration.
   if (lead.lead_source === "nobroker") {
     return { ...row, source: "nobroker", leadgenId: asNullableString(lead.nobroker_lead_ref) ?? "", facebookPage: LEAD_SOURCE_LABELS.nobroker, adName: asNullableString(lead.nobroker_project_name) ?? "-" };
+  }
+  // A lead OLX Home pushed: OLX Home's own enquiry id, and the project or property the enquiry was about (when sent).
+  // Only these 2 of its 3 lead_data columns are shown; olx_home_integration_id is just the link to the integration.
+  if (lead.lead_source === "olx_home") {
+    return { ...row, source: "olx_home", leadgenId: asNullableString(lead.olx_home_lead_ref) ?? "", facebookPage: LEAD_SOURCE_LABELS.olx_home, adName: asNullableString(lead.olx_home_project_name) ?? "-" };
   }
   return row;
 }

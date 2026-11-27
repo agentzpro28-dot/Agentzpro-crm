@@ -117,6 +117,18 @@ export const DASHBOARD_PLATFORMS = [
     emptyState: { title: "No NoBroker leads match these filters", description: "Enquiries NoBroker sends to your NoBroker webhook URL show up here instantly." },
   },
   {
+    // Enquiries OLX Home pushes to the company's OLX Home URL. Totals, status, label and timeline, so
+    // get_dashboard_platform_stats_v2 needs no change. An enquiry whose phone was already in the CRM is a note on that
+    // lead, not an OLX Home lead, so it is not counted here.
+    id: "olx_home",
+    label: "OLX Home",
+    group: null,
+    items: null,
+    filters: { page: false, ad: false, campaign: false },
+    connection: null,
+    emptyState: { title: "No OLX Home leads match these filters", description: "Enquiries OLX Home sends to your OLX Home webhook URL show up here instantly." },
+  },
+  {
     id: "telecaller",
     label: "Telecaller",
     group: null,

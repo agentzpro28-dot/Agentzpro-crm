@@ -8,8 +8,8 @@ import { LEADS_CHANGED_EVENT } from "@/components/task-bell";
 import { SHOW_NEW_LEADS_EVENT } from "@/lib/live-events";
 
 // The Source filter's connection checks (useLeadSources). By default the company uses every source.
-const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn(), housing: vi.fn(), sulekha: vi.fn(), nobroker: vi.fn() }));
-vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook, getPortalIntegrationStatuses: sourceChecks.portals, getMagicbricksStatus: sourceChecks.magicbricks, getHousingStatus: sourceChecks.housing, getSulekhaStatus: sourceChecks.sulekha, getNoBrokerStatus: sourceChecks.nobroker }));
+const sourceChecks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn(), housing: vi.fn(), sulekha: vi.fn(), nobroker: vi.fn(), olxHome: vi.fn() }));
+vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: sourceChecks.connection, getGoogleAdsOverview: sourceChecks.google, getCustomWebhookOverview: sourceChecks.webhook, getPortalIntegrationStatuses: sourceChecks.portals, getMagicbricksStatus: sourceChecks.magicbricks, getHousingStatus: sourceChecks.housing, getSulekhaStatus: sourceChecks.sulekha, getNoBrokerStatus: sourceChecks.nobroker, getOlxHomeStatus: sourceChecks.olxHome }));
 beforeEach(() => {
   sourceChecks.connection.mockReset().mockResolvedValue({ connectionStatus: "active", pages: [{ id: "page-1", status: "active" }] });
   sourceChecks.google.mockReset().mockResolvedValue({ connection: null, hasWebhook: true, webhookStopped: false, needsReconnect: false });
@@ -19,6 +19,7 @@ beforeEach(() => {
   sourceChecks.housing.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
   sourceChecks.sulekha.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
   sourceChecks.nobroker.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
+  sourceChecks.olxHome.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
 });
 
 vi.mock("next/link", () => ({
