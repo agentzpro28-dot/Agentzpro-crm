@@ -4,11 +4,12 @@ import type { HousingOverview } from "@/lib/housing/housing";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/housing/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-20T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: HousingOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [] } };
+const WAITING: HousingOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getHousingOverview: vi.fn(),
   createHousingIntegration: vi.fn(),
+  setHousingPaused: vi.fn(),
 }));
 
 const { HousingIntegrationCard, housingRelativeTime } = await import("@/features/connection/housing-integration-card");
@@ -18,6 +19,7 @@ let writeText: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.mocked(api.getHousingOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createHousingIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
+  vi.mocked(api.setHousingPaused).mockReset().mockImplementation(async (paused) => ({ paused }));
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -127,6 +129,100 @@ describe("HousingIntegrationCard", () => {
     vi.mocked(api.getHousingOverview).mockRejectedValue(new Error("Housing.com details could not be loaded."));
     render(<HousingIntegrationCard />);
     expect(await screen.findByText("Housing.com details could not be loaded.")).toBeInTheDocument();
+  });
+});
+
+const CONNECTED_AT = "2026-11-20T09:00:00Z";
+const CONNECTED: HousingOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT } };
+const PAUSED: HousingOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT, paused: true } };
+
+describe("HousingIntegrationCard Pause / Resume", () => {
+  it("puts Regenerate URL and Pause side by side in one row", async () => {
+    render(<HousingIntegrationCard />);
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    const regenerate = screen.getByRole("button", { name: "Regenerate URL" });
+    expect(pause.parentElement).toBe(regenerate.parentElement);
+    expect(regenerate.className).toBe("button");
+  });
+
+  it("asks first: Cancel (focused, at the top) and Esc change nothing", async () => {
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Pause Housing.com leads?" });
+    expect(dialog).toHaveTextContent("While paused, every lead Housing.com sends is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving Housing.com leads in your CRM again.");
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(api.setHousingPaused).not.toHaveBeenCalled();
+  });
+
+  it("OK pauses: the badge says Paused, the button turns to Resume and Connected is no longer shown", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(PAUSED);
+    render(<HousingIntegrationCard />);
+    expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(api.setHousingPaused).toHaveBeenCalledWith(true));
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(screen.getByText("Paused", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last lead received/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/The status turns Connected/)).not.toBeInTheDocument();
+    expect(screen.getByText("Lead delivery paused")).toBeInTheDocument();
+    expect(screen.getByText("Last lead")).toBeInTheDocument();
+    expect(screen.getByText("Click Resume to start receiving Housing.com leads again.")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("Resume needs no pop-up and brings Pause back", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(CONNECTED);
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.setHousingPaused).toHaveBeenCalledWith(false));
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+  });
+
+  it("stays paused after a Regenerate (Resume is still shown)", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValue(PAUSED);
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Regenerate URL" }));
+    const buttons = screen.getAllByRole("button", { name: "Regenerate URL" });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(api.createHousingIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your Housing.com account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(api.setHousingPaused).not.toHaveBeenCalled();
+  });
+
+  it("while paused, never says leads still arrive on the old URL", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValue({ ...PAUSED, integration: { ...PAUSED.integration!, previousUrl: { validUntil: "2026-11-27T12:00:00Z", lastLeadAt: "2026-11-20T11:00:00Z" } } });
+    render(<HousingIntegrationCard />);
+    expect(await screen.findByText(/^Your old URL is paused too\. It stops for good on .+\.$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
+  });
+
+  it("shows why a pause failed and keeps Pause", async () => {
+    vi.mocked(api.setHousingPaused).mockRejectedValue(new Error("Housing.com leads could not be paused. Try again."));
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    expect(await screen.findByText("Housing.com leads could not be paused. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  });
+
+  it("gives an employee no Pause, no Resume and no Paused label", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    render(<HousingIntegrationCard />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });
 

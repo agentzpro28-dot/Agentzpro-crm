@@ -18,12 +18,12 @@ const TOKEN = "T".repeat(43);
 /** A query chain: every builder call returns the chain; maybeSingle() and await resolve to `result`. */
 function chain(result: { data?: unknown; error: unknown }) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const method of ["select", "eq", "lt", "order", "limit"]) query[method] = vi.fn(() => query);
+  for (const method of ["select", "update", "eq", "lt", "order", "limit"]) query[method] = vi.fn(() => query);
   query.maybeSingle = vi.fn(() => Promise.resolve(result));
   return Object.assign(query, { then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve) });
 }
 
-const row = (extra: Record<string, unknown> = {}) => ({ id: "hs-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, previous_valid_until: null, previous_last_received_at: null, ...extra });
+const row = (extra: Record<string, unknown> = {}) => ({ id: "hs-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, previous_valid_until: null, previous_last_received_at: null, paused_at: null, ...extra });
 
 function overviewTables(integration: unknown, failedResult: { data?: unknown; error: unknown } = { data: [], error: null }, stuckResult: { data?: unknown; error: unknown } = { data: [], error: null }) {
   const integrationRead = chain({ data: integration, error: null });
@@ -44,6 +44,7 @@ describe("HousingIntegrationService.getOverview", () => {
     mocks.access.mockResolvedValue(OWNER);
     const { integrationRead } = overviewTables(row());
     await expect(new HousingIntegrationService().getOverview(ORIGIN)).resolves.toEqual({ canManage: true, hasIntegration: true, integration: null });
+    expect(integrationRead.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,previous_valid_until,previous_last_received_at,paused_at");
     expect(integrationRead.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
     expect(mocks.from).toHaveBeenCalledTimes(1);
   });
@@ -73,6 +74,7 @@ describe("HousingIntegrationService.getOverview", () => {
       url: `${ORIGIN}/api/webhooks/housing/${TOKEN}`,
       lastLeadAt: "2026-11-20T11:00:00Z",
       previousUrl: null,
+      paused: false,
       failedRequests: [
         { id: "log-2", createdAt: "2026-11-20T10:00:00Z", reason: "Mobile number or email not found" },
         { id: "log-1", createdAt: "2026-11-20T09:00:00Z", reason: "Not saved" },
@@ -132,6 +134,56 @@ describe("HousingIntegrationService.createOrReplace", () => {
     mocks.access.mockResolvedValue(OWNER);
     mocks.rpc.mockResolvedValue({ data: null, error: { message: "down" } });
     await expect(new HousingIntegrationService().createOrReplace(ORIGIN)).rejects.toMatchObject({ status: 500, code: "HOUSING_SAVE_FAILED" });
+  });
+});
+
+describe("HousingIntegrationService pause", () => {
+  it("pauses and resumes only this company's active Housing.com URL, and the owner's card reads paused_at", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-27T10:00:00Z") });
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "hs-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    const service = new HousingIntegrationService();
+    await expect(service.setPaused(true)).resolves.toEqual({ paused: true });
+    expect(mocks.from).toHaveBeenCalledWith("housing_integrations");
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: "2026-11-27T10:00:00.000Z" });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("is_active", true);
+    expect(query.select).toHaveBeenCalledWith("id");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+
+    const { integrationRead } = overviewTables(row({ paused_at: "2026-11-27T10:00:00Z" }));
+    expect((await service.getOverview(ORIGIN, { details: true })).integration?.paused).toBe(true);
+    expect(integrationRead.select).toHaveBeenCalledWith(expect.stringContaining("paused_at"));
+  });
+
+  it("resumes: paused_at back to null", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "hs-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    await expect(new HousingIntegrationService().setPaused(false)).resolves.toEqual({ paused: false });
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: null });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("is_active", true);
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new HousingIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 403, code: "HOUSING_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when there is none (0 rows)", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new HousingIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 404, code: "HOUSING_INTEGRATION_NOT_FOUND", message: "Generate the webhook URL first." });
+  });
+
+  it("fails cleanly (500) when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new HousingIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 500, code: "HOUSING_PAUSE_FAILED", message: "Housing.com leads could not be paused. Try again." });
+    await expect(new HousingIntegrationService().setPaused(false)).rejects.toMatchObject({ status: 500, code: "HOUSING_PAUSE_FAILED", message: "Housing.com leads could not be resumed. Try again." });
   });
 });
 
