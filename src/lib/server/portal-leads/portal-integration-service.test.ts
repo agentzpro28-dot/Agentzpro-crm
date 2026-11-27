@@ -25,7 +25,7 @@ function chain(result: { data?: unknown; error: unknown }) {
 
 const row = (extra: Record<string, unknown> = {}) => ({
   id: "integration-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null,
-  previous_valid_until: null, previous_last_received_at: null, ...extra,
+  previous_valid_until: null, previous_last_received_at: null, paused_at: null, ...extra,
 });
 const FAILED = { id: "log-1", created_at: "2026-11-17T10:00:00Z", error_message: "Send mobile or email." };
 
@@ -71,7 +71,7 @@ describe("PortalIntegrationService.getOverview", () => {
     await expect(service.getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({
       portal: "99acres", canManage: true, hasIntegration: true,
       integration: {
-        url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z", previousUrl: null,
+        url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z", previousUrl: null, paused: false,
         failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" }],
       },
     });
@@ -89,7 +89,7 @@ describe("PortalIntegrationService.getOverview", () => {
     const integration = chain({ data: row({ previous_valid_until: "2026-11-28T06:00:00Z", previous_last_received_at: "2026-11-21T05:00:00Z" }), error: null });
     mocks.from.mockImplementation((table: string) => table === "portal_integrations" ? integration : chain({ data: [], error: null }));
     const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
-    expect(integration.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at");
+    expect(integration.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at,paused_at");
     expect(overview.integration?.previousUrl).toEqual({ validUntil: "2026-11-28T06:00:00Z", lastLeadAt: "2026-11-21T05:00:00Z" });
 
     // Its 7 days are over: the database refuses it, so the card no longer mentions it.
@@ -249,5 +249,53 @@ describe("PortalIntegrationService.createOrReplace", () => {
     mocks.access.mockResolvedValue(OWNER);
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000" } });
     await expect(new PortalIntegrationService().createOrReplace("99acres", ORIGIN)).rejects.toMatchObject({ status: 500, code: "PORTAL_SAVE_FAILED" });
+  });
+});
+
+describe("PortalIntegrationService pause", () => {
+  it("reads paused_at and tells the owner's card whether 99acres is paused", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    overviewTables(row({ paused_at: "2026-11-27T10:00:00Z" }), { data: [], error: null });
+    const overview = await new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true });
+    expect(overview.integration?.paused).toBe(true);
+    expect(mocks.from.mock.results[0].value.select).toHaveBeenCalledWith(expect.stringContaining("paused_at"));
+  });
+
+  it("never tells an employee about a pause", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    mocks.from.mockReturnValue(chain({ data: row({ paused_at: "2026-11-27T10:00:00Z" }), error: null }));
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: false, hasIntegration: true, integration: null });
+  });
+
+  it("pauses and resumes only this company's active 99acres URL", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-27T10:00:00Z") });
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "integration-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    const service = new PortalIntegrationService();
+    await expect(service.setPaused("99acres", true)).resolves.toEqual({ paused: true });
+    expect(mocks.from).toHaveBeenCalledWith("portal_integrations");
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: "2026-11-27T10:00:00.000Z" });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("portal_name", "99acres");
+    expect(query.eq).toHaveBeenCalledWith("is_active", true);
+    await expect(service.setPaused("99acres", false)).resolves.toEqual({ paused: false });
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: null });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new PortalIntegrationService().setPaused("99acres", true)).rejects.toMatchObject({ status: 403, code: "PORTAL_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when there is none, and 500 when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new PortalIntegrationService().setPaused("99acres", true)).rejects.toMatchObject({ status: 404, message: "Generate the webhook URL first." });
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new PortalIntegrationService().setPaused("99acres", true)).rejects.toMatchObject({ status: 500, message: "99acres leads could not be paused. Try again." });
+    await expect(new PortalIntegrationService().setPaused("99acres", false)).rejects.toMatchObject({ status: 500, message: "99acres leads could not be resumed. Try again." });
   });
 });

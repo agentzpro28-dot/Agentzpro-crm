@@ -57,6 +57,7 @@ type IntegrationRow = {
   url_rotated_at: string | null;
   previous_valid_until: string | null;
   previous_last_received_at: string | null;
+  paused_at: string | null;
 };
 type FailedRequestRow = { id: string; created_at: string; error_message: string | null };
 
@@ -89,7 +90,7 @@ export class PortalIntegrationService {
     const canManage = access.membershipRole === "owner";
     const db = getSupabaseAdminClient();
     const { data, error } = await db.from("portal_integrations")
-      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at")
+      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at,paused_at")
       .eq("tenant_id", access.tenantId)
       .eq("portal_name", portal)
       .maybeSingle();
@@ -120,6 +121,7 @@ export class PortalIntegrationService {
         // save_portal_url clears last_received_at on a regenerate; sinceRotation also covers URLs replaced before that.
         lastLeadAt: sinceRotation(row.last_received_at, row.url_rotated_at),
         previousUrl,
+        paused: Boolean(row.paused_at),
         failedRequests: newestFailedRequests((stuck.data ?? []) as FailedRequestRow[], (failed.data ?? []) as FailedRequestRow[]).map(toFailedRequestView),
       },
     };
@@ -140,6 +142,26 @@ export class PortalIntegrationService {
     });
     if (error) throw saveFailed();
     return { url: buildPortalWebhookUrl(origin, portal, token) };
+  }
+
+  /**
+   * Pauses this portal's leads, or resumes them (owner only). While paused, find_portal_integration finds nothing, so
+   * every request to the current URL and to the old URL gets 404 and nothing is saved. A Regenerate keeps the pause.
+   */
+  public async setPaused(portal: PortalId, paused: boolean): Promise<{ paused: boolean }> {
+    const owner = await resolveOwner(portal);
+    const { data, error } = await getSupabaseAdminClient().from("portal_integrations")
+      .update({ paused_at: paused ? new Date().toISOString() : null })
+      .eq("tenant_id", owner.tenantId)
+      .eq("portal_name", portal)
+      .eq("is_active", true)
+      .select("id");
+    if (error) {
+      const label = PORTALS[portal].label;
+      throw new AppError(paused ? `${label} leads could not be paused. Try again.` : `${label} leads could not be resumed. Try again.`, { status: 500, code: "PORTAL_PAUSE_FAILED" });
+    }
+    if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "PORTAL_INTEGRATION_NOT_FOUND" });
+    return { paused };
   }
 }
 

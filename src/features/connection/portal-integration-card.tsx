@@ -1,14 +1,15 @@
 "use client";
 
-import { Building2, Check, Copy, Eye, EyeOff, KeyRound, Loader2, RefreshCw, X } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { Building2, Check, Copy, Eye, EyeOff, KeyRound, Loader2, Pause, Play, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import { formatDateTime } from "@/lib/date-utils";
 import { PORTAL_PREVIOUS_URL_DAYS, PORTALS, type PortalId, type PortalIntegrationOverview } from "@/lib/portal-leads/portals";
-import { createPortalIntegration, getPortalIntegrationOverview } from "@/services/crm-api-client";
+import { createPortalIntegration, getPortalIntegrationOverview, setPortalIntegrationPaused } from "@/services/crm-api-client";
+import styles from "./portal-integration-card.module.css";
 
-type Busy = "create" | "replace" | "refresh" | null;
+type Busy = "create" | "replace" | "refresh" | "pause" | "resume" | null;
 type Message = { tone: "success" | "danger" | "warning" | "info"; text: string };
 
 /**
@@ -25,6 +26,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [confirmReplace, setConfirmReplace] = useState(false);
+  const [confirmPause, setConfirmPause] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showUrl, setShowUrl] = useState(false);
   const urlInputId = useId();
@@ -68,7 +70,9 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const canManage = overview?.canManage === true;
   const integration = overview?.integration ?? null;
   const webhookUrl = integration?.url ?? null;
+  const paused = integration?.paused === true;
   const badge = !overview ? null
+    : paused ? { tone: "warning" as const, text: "Paused" }
     : integration ? (integration.lastLeadAt ? { tone: "success" as const, text: "Connected" } : { tone: "warning" as const, text: "Waiting for first lead" })
       : overview.hasIntegration && !canManage ? { tone: "success" as const, text: "Set up" } : { tone: "info" as const, text: "Not set up" };
 
@@ -90,15 +94,19 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
                 <button className="google-copy-row__action" type="button" aria-pressed={showUrl} onClick={() => setShowUrl((current) => !current)}>{showUrl ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}{showUrl ? "Hide" : "Show"}</button>
                 <button className={`google-copy-row__action${copied ? " google-copy-row__action--done" : ""}`} type="button" onClick={() => void copyUrl(webhookUrl)}>{copied ? <Check aria-hidden="true" size={16} /> : <Copy aria-hidden="true" size={16} />}{copied ? "Copied" : "Copy URL"}</button></div></div>
           </> : <Notice tone="warning" title={`This URL can't be shown. Regenerate it, then send the new URL to ${label}.`} />}
-          {integration.previousUrl ? <Notice tone={integration.previousUrl.lastLeadAt ? "warning" : "info"} title={integration.previousUrl.lastLeadAt
+          {integration.previousUrl ? paused ? <Notice tone="info" title={`Your old URL is paused too. It stops for good on ${formatDateTime(integration.previousUrl.validUntil)}.`} />
+            : <Notice tone={integration.previousUrl.lastLeadAt ? "warning" : "info"} title={integration.previousUrl.lastLeadAt
             ? `Leads are still arriving on your old URL. It stops on ${formatDateTime(integration.previousUrl.validUntil)}. Send the new URL to ${label}.`
             : `Your old URL works until ${formatDateTime(integration.previousUrl.validUntil)}.`} /> : null}
-          <div className="button-group">
+          {confirmReplace ? <span className="field-help">Your old URL keeps working for {PORTAL_PREVIOUS_URL_DAYS} days. Send the new URL to {label} before then, or {label} will stop delivering leads.</span> : null}
+          <div className={`button-group ${styles.actionRow}`}>
             {confirmReplace ? <>
-              <span className="field-help">Your old URL keeps working for {PORTAL_PREVIOUS_URL_DAYS} days. Send the new URL to {label} before then, or {label} will stop delivering leads.</span>
               <button className="button button--danger" type="button" disabled={busy === "replace"} onClick={() => void run("replace", async () => { await createPortalIntegration(portal); await reload(); setConfirmReplace(false); setShowUrl(false); setMessage({ tone: "success", text: `New URL created. Send it to ${label}.` }); })}>{busy === "replace" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Regenerate URL</button>
               <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(false)}><X aria-hidden="true" size={18} />Cancel</button>
-            </> : <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Regenerate URL</button>}
+            </> : <button className="button" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Regenerate URL</button>}
+            {paused
+              ? <button className={`button ${styles.resumeButton}`} type="button" disabled={busy === "resume"} onClick={() => void run("resume", async () => { await setPortalIntegrationPaused(portal, false); await reload(); })}>{busy === "resume" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}Resume</button>
+              : <button className={`button ${styles.pauseButton}`} type="button" disabled={busy === "pause"} onClick={() => setConfirmPause(true)}>{busy === "pause" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Pause aria-hidden="true" size={18} />}Pause</button>}
           </div>
         </> : <>
           <p className="field-help">Create the secret URL {label} will send your leads to.</p>
@@ -109,11 +117,15 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
       <div className="google-ads-step">
         <h3><span className="google-step-number">2</span>Check that leads arrive</h3>
         {!integration ? <p className="field-help">Generate the webhook URL first.</p>
+          : paused ? <>
+            <div className="meta-list"><div className="meta-item"><span>Last lead</span><strong>{integration.lastLeadAt ? formatDateTime(integration.lastLeadAt) : "None yet"}</strong></div></div>
+            <p className={styles.pausedLine}>Lead delivery paused<Pause aria-hidden="true" size={18} /></p>
+          </>
           : integration.lastLeadAt ? <div className="google-arrival">
             <strong className="google-arrival__status">Connected<Check aria-hidden="true" size={18} /></strong>
             <span className="field-help" title={formatDateTime(integration.lastLeadAt)}>Last lead received {relativeTime(integration.lastLeadAt)}</span>
           </div> : <div className="meta-list"><div className="meta-item"><span>Status</span><strong>Waiting for first lead</strong></div></div>}
-        <p className="field-help">The status turns Connected when {label} sends the first lead.</p>
+        {paused ? <p className="field-help">Click Resume to start receiving {label} leads again.</p> : <p className="field-help">The status turns Connected when {label} sends the first lead.</p>}
         {integration ? <div className="button-group">
           <button className="button button--secondary" type="button" disabled={busy === "refresh"} onClick={() => void run("refresh", reload)}>{busy === "refresh" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Refresh</button>
         </div> : null}
@@ -129,8 +141,32 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
           <p className="portal-log__error">{entry.reason}</p>
         </li>)}</ul>
       </div> : null}
+      {confirmPause ? <PausePortalPopup
+        label={label}
+        onCancel={() => setConfirmPause(false)}
+        onOk={() => { setConfirmPause(false); void run("pause", async () => { await setPortalIntegrationPaused(portal, true); await reload(); }); }} /> : null}
     </> : null}
   </div></section>;
+}
+
+/**
+ * Asks before this portal's leads are paused: Cancel at the top (or Esc) changes nothing; OK pauses. Focus starts on
+ * Cancel, so a stray Enter never pauses leads.
+ */
+function PausePortalPopup({ label, onCancel, onOk }: { label: string; onCancel: () => void; onOk: () => void }) {
+  const titleId = useId();
+  const textId = useId();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { cancelRef.current?.focus(); }, []);
+  return <div className="mvp-invite-popup__backdrop" onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }}>
+    <div className={`mvp-invite-popup ${styles.pausePopup}`} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={textId}>
+      <button type="button" className={styles.pauseCancel} ref={cancelRef} onClick={onCancel}><X aria-hidden="true" size={16} />Cancel</button>
+      <span className={`mvp-invite-popup__icon ${styles.pauseIcon}`} aria-hidden="true"><Pause size={28} /></span>
+      <h4 id={titleId}>Pause {label} leads?</h4>
+      <p id={textId}>While paused, every lead {label} sends is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving {label} leads in your CRM again.</p>
+      <button type="button" className="mvp-invite-popup__ok" onClick={onOk}>OK</button>
+    </div>
+  </div>;
 }
 
 /** "just now", "5 minutes ago", "yesterday", "3 days ago". */
