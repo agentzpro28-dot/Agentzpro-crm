@@ -1,0 +1,27 @@
+/* Custom webhook card only: the Pause pop-up's Cancel at the top, its icon, and the "paused" line. */
+.pausePopup { position: relative; }
+
+.pauseCancel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  font-size: .84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pauseCancel:hover { color: var(--text); background: var(--surface-muted); }
+.pauseCancel:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.pausePopup .pauseIcon { background: var(--warning-bg); color: var(--warning); }
+
+.pausedLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--warning); font-weight: 800; }
+.pausedLine svg { flex: none; }

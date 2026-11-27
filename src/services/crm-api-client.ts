@@ -117,8 +117,11 @@ export type CustomWebhookOverview = {
   canManage: boolean;
   hasWebhook: boolean;
   webhookStopped: boolean;
-  /** Owner only, and only with details: true (the Connection card). lastLeadAt counts only leads sent to the current URL. */
-  webhook: { url: string; lastLeadAt: string | null } | null;
+  /**
+   * Owner only, and only with details: true (the Connection card). lastLeadAt counts only leads sent to the current URL;
+   * paused: the owner paused webhook leads (every request is refused, nothing is saved).
+   */
+  webhook: { url: string; lastLeadAt: string | null; paused: boolean } | null;
 };
 
 /** details: true (Connection card only) adds the owner's webhook URL; /leads and the dashboard never ask for it. */
@@ -128,6 +131,8 @@ export async function getCustomWebhookOverview(options: { details?: boolean } = 
 }
 export async function createCustomWebhook(): Promise<{ url: string }> { return changeConnection("/api/integrations/custom-webhook", { method: "POST", body: "{}" }); }
 export async function stopCustomWebhook(): Promise<{ stopped: boolean }> { return changeConnection("/api/integrations/custom-webhook", { method: "DELETE" }); }
+/** Pauses (true) or resumes (false) the company's webhook leads. Owner only. */
+export async function setCustomWebhookPaused(paused: boolean): Promise<{ paused: boolean }> { return changeConnection("/api/integrations/custom-webhook", { method: "PATCH", body: JSON.stringify({ paused }) }); }
 
 /** Whether this company created its MagicBricks URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
 export async function getMagicbricksStatus(): Promise<MagicbricksOverview> { return sharedConnectionCheck<MagicbricksOverview>("/api/integrations/magicbricks", false); }

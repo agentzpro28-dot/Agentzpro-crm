@@ -2,11 +2,11 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), maybeSingle: vi.fn(), eq: vi.fn(), from: vi.fn(), rate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), maybeSingle: vi.fn(), eq: vi.fn(), from: vi.fn(), select: vi.fn(), rate: vi.fn() }));
 vi.mock("@/lib/server/supabase-admin", () => ({
   getSupabaseAdminClient: () => ({
     rpc: mocks.rpc,
-    from: (table: string) => { mocks.from(table); return { select: () => ({ eq: (...args: unknown[]) => { mocks.eq(...args); return { maybeSingle: mocks.maybeSingle }; } }) }; },
+    from: (table: string) => { mocks.from(table); return { select: (columns: string) => { mocks.select(columns); return { eq: (...args: unknown[]) => { mocks.eq(...args); return { maybeSingle: mocks.maybeSingle }; } }; } }; },
   }),
 }));
 vi.mock("@/lib/server/custom-webhook/webhook-rate-limit", () => ({ checkCustomWebhookRate: mocks.rate }));
@@ -14,7 +14,7 @@ vi.mock("@/lib/server/custom-webhook/webhook-rate-limit", () => ({ checkCustomWe
 import { CustomLeadWebhookService, hashCustomWebhookToken } from "@/lib/server/custom-webhook/custom-lead-webhook-service";
 
 const TOKEN = "A".repeat(43);
-const WEBHOOK = { id: "webhook-1", tenant_id: "tenant-a", is_active: true };
+const WEBHOOK = { id: "webhook-1", tenant_id: "tenant-a", is_active: true, paused_at: null };
 const JSON_TYPE = "application/json";
 const body = (extra: Record<string, unknown> = {}) => JSON.stringify({ name: "Ravi", phone: "9876543210", source: "Landing Page", lead_id: "lp-1", ...extra });
 const ingest = (raw = body(), type: string | null = JSON_TYPE, token = TOKEN) => new CustomLeadWebhookService().ingest(token, type, raw);
@@ -60,6 +60,22 @@ describe("CustomLeadWebhookService.ingest", () => {
     await expect(ingest()).resolves.toMatchObject({ status: 404 });
     expect(mocks.rpc).not.toHaveBeenCalled();
     expect(mocks.rate).not.toHaveBeenCalled();
+  });
+
+  it("refuses every request while the owner has paused webhook leads: 404 like a wrong URL, nothing read or saved", async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: { ...WEBHOOK, paused_at: "2026-11-27T10:00:00Z" }, error: null });
+    await expect(ingest()).resolves.toEqual({ status: 404, message: "Unknown webhook." });
+    // Even a body that could never be a lead gets the same answer: nothing is read while paused.
+    await expect(ingest("not json", "text/plain")).resolves.toEqual({ status: 404, message: "Unknown webhook." });
+    expect(mocks.select).toHaveBeenCalledWith("id,tenant_id,is_active,paused_at");
+    expect(mocks.rate).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("saves leads again once the owner resumes (paused_at cleared)", async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: { ...WEBHOOK, paused_at: null }, error: null });
+    await expect(ingest()).resolves.toEqual({ status: 200, duplicate: false });
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
   });
 
   it("answers 413 for an oversized body without a database lookup", async () => {

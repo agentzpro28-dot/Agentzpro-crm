@@ -25,7 +25,7 @@ function chain(result: { data?: unknown; error: unknown }) {
 beforeEach(() => vi.resetAllMocks());
 
 describe("CustomWebhookConnectionService.getOverview", () => {
-  const row = (extra: Record<string, unknown> = {}) => ({ encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_lead_received_at: null, url_rotated_at: null, ...extra });
+  const row = (extra: Record<string, unknown> = {}) => ({ encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_lead_received_at: null, url_rotated_at: null, paused_at: null, ...extra });
 
   it("gives the owner the URL only when the Connection card asks for it", async () => {
     mocks.access.mockResolvedValue(OWNER);
@@ -33,10 +33,27 @@ describe("CustomWebhookConnectionService.getOverview", () => {
     const service = new CustomWebhookConnectionService();
     await expect(service.getOverview(ORIGIN, { includeUrl: true })).resolves.toEqual({
       canManage: true, hasWebhook: true, webhookStopped: false,
-      webhook: { url: `${ORIGIN}/api/webhooks/custom/${TOKEN}`, lastLeadAt: "2026-11-11T10:00:00Z" },
+      webhook: { url: `${ORIGIN}/api/webhooks/custom/${TOKEN}`, lastLeadAt: "2026-11-11T10:00:00Z", paused: false },
     });
     // The /leads and dashboard source check: on / stopped only, never the URL.
     await expect(service.getOverview(ORIGIN)).resolves.toEqual({ canManage: true, hasWebhook: true, webhookStopped: false, webhook: null });
+  });
+
+  it("tells the owner's card when webhook leads are paused, but never the /leads or dashboard check", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockImplementation(() => chain({ data: row({ paused_at: "2026-11-27T10:00:00Z" }), error: null }));
+    const service = new CustomWebhookConnectionService();
+    const card = await service.getOverview(ORIGIN, { includeUrl: true });
+    expect(card.webhook?.paused).toBe(true);
+    // A paused webhook still counts as set up: its old leads stay in the Source filter and the dashboard.
+    expect(card.hasWebhook).toBe(true);
+    await expect(service.getOverview(ORIGIN)).resolves.toEqual({ canManage: true, hasWebhook: true, webhookStopped: false, webhook: null });
+  });
+
+  it("never tells an employee whether webhook leads are paused", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    mocks.from.mockImplementation(() => chain({ data: row({ paused_at: "2026-11-27T10:00:00Z" }), error: null }));
+    await expect(new CustomWebhookConnectionService().getOverview(ORIGIN, { includeUrl: true })).resolves.toEqual({ canManage: false, hasWebhook: true, webhookStopped: false, webhook: null });
   });
 
   it("never gives an employee the URL", async () => {
@@ -143,9 +160,18 @@ describe("CustomWebhookConnectionService.stop", () => {
     mocks.from.mockReturnValue(update);
     await new CustomWebhookConnectionService().stop();
     expect(mocks.from).toHaveBeenCalledWith("custom_lead_webhooks");
-    expect(update.update).toHaveBeenCalledWith({ is_active: false });
+    // A pause ends with Stop, so a webhook created again later receives leads at once.
+    expect(update.update).toHaveBeenCalledWith({ is_active: false, paused_at: null });
     expect(update.eq).toHaveBeenCalledTimes(1);
     expect(update.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+  });
+
+  it("never touches the URL, so the pause does not change it", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const update = chain({ error: null });
+    mocks.from.mockReturnValue(update);
+    await new CustomWebhookConnectionService().stop();
+    expect(Object.keys(update.update.mock.calls[0][0]).sort()).toEqual(["is_active", "paused_at"]);
   });
 
   it("refuses an employee, and reports a database failure instead of claiming leads stopped", async () => {
@@ -155,5 +181,46 @@ describe("CustomWebhookConnectionService.stop", () => {
     mocks.access.mockResolvedValue(OWNER);
     mocks.from.mockReturnValue(chain({ error: { message: "down" } }));
     await expect(new CustomWebhookConnectionService().stop()).rejects.toMatchObject({ status: 500, code: "CUSTOM_WEBHOOK_STOP_FAILED" });
+  });
+});
+
+describe("CustomWebhookConnectionService.setPaused", () => {
+  it("pauses only the owner's own active webhook, with the time it was paused", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const update = chain({ data: [{ id: "webhook-1" }], error: null });
+    mocks.from.mockReturnValue(update);
+    await expect(new CustomWebhookConnectionService().setPaused(true)).resolves.toEqual({ paused: true });
+    expect(mocks.from).toHaveBeenCalledWith("custom_lead_webhooks");
+    expect(update.update).toHaveBeenCalledWith({ paused_at: expect.any(String) });
+    expect(Number.isNaN(Date.parse(update.update.mock.calls[0][0].paused_at))).toBe(false);
+    expect(update.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(update.eq).toHaveBeenCalledWith("is_active", true);
+  });
+
+  it("resumes by clearing the pause, and changes nothing else", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const update = chain({ data: [{ id: "webhook-1" }], error: null });
+    mocks.from.mockReturnValue(update);
+    await expect(new CustomWebhookConnectionService().setPaused(false)).resolves.toEqual({ paused: false });
+    expect(update.update).toHaveBeenCalledWith({ paused_at: null });
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new CustomWebhookConnectionService().setPaused(true)).rejects.toMatchObject({ status: 403, code: "CUSTOM_WEBHOOK_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("says so when there is no active webhook to pause (none yet, or stopped)", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new CustomWebhookConnectionService().setPaused(true)).rejects.toMatchObject({ status: 404, code: "CUSTOM_WEBHOOK_NOT_FOUND" });
+  });
+
+  it("reports a database failure instead of claiming leads were paused or resumed", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new CustomWebhookConnectionService().setPaused(true)).rejects.toMatchObject({ status: 500, code: "CUSTOM_WEBHOOK_PAUSE_FAILED", message: "Webhook leads could not be paused. Try again." });
+    await expect(new CustomWebhookConnectionService().setPaused(false)).rejects.toMatchObject({ status: 500, code: "CUSTOM_WEBHOOK_PAUSE_FAILED", message: "Webhook leads could not be resumed. Try again." });
   });
 });

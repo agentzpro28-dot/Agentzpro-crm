@@ -15,13 +15,14 @@ export interface CustomWebhookOverview {
   webhookStopped: boolean;
   /**
    * Only for the owner, and only when the Connection card asks (`includeUrl`): the URL to paste into the company's
-   * tools, and when the last lead arrived on this URL (a lead sent before Replace URL does not count). The /leads and
+   * tools, when the last lead arrived on this URL (a lead sent before Replace URL does not count) and whether the owner
+   * paused webhook leads (every request is then refused and nothing is saved). The /leads and
    * dashboard source check never asks, so the secret URL never travels to those pages.
    */
-  webhook: { url: string; lastLeadAt: string | null } | null;
+  webhook: { url: string; lastLeadAt: string | null; paused: boolean } | null;
 }
 
-type WebhookRow = { encrypted_url_token: string; is_active: boolean; last_lead_received_at: string | null; url_rotated_at: string | null };
+type WebhookRow = { encrypted_url_token: string; is_active: boolean; last_lead_received_at: string | null; url_rotated_at: string | null; paused_at: string | null };
 
 async function resolveOwner(): Promise<{ tenantId: string }> {
   const access = await requireCrmAccess();
@@ -36,7 +37,7 @@ export class CustomWebhookConnectionService {
     const access = await requireCrmAccess();
     const canManage = access.membershipRole === "owner";
     const { data, error } = await getSupabaseAdminClient().from("custom_lead_webhooks")
-      .select("encrypted_url_token,is_active,last_lead_received_at,url_rotated_at")
+      .select("encrypted_url_token,is_active,last_lead_received_at,url_rotated_at,paused_at")
       .eq("tenant_id", access.tenantId)
       .maybeSingle();
     if (error) throw new AppError("Webhook details could not be loaded.", { status: 500, code: "CUSTOM_WEBHOOK_OVERVIEW_FAILED" });
@@ -49,6 +50,7 @@ export class CustomWebhookConnectionService {
       webhook: canManage && options.includeUrl && row && active ? {
         url: buildWebhookUrl(origin, decryptToken(row.encrypted_url_token)),
         lastLeadAt: sinceRotation(row.last_lead_received_at, row.url_rotated_at),
+        paused: row.paused_at !== null,
       } : null,
     };
   }
@@ -80,14 +82,34 @@ export class CustomWebhookConnectionService {
 
   /**
    * Stops webhook leads for this company: every request to the URL is refused with 404 and nothing is saved (the
-   * webhook route and ingest_custom_webhook_lead both require is_active). Leads already received stay.
+   * webhook route and ingest_custom_webhook_lead both require is_active). Leads already received stay. A pause ends
+   * with it, so a webhook created again after Stop receives leads at once.
    */
   public async stop(): Promise<void> {
     const owner = await resolveOwner();
     const { error } = await getSupabaseAdminClient().from("custom_lead_webhooks")
-      .update({ is_active: false })
+      .update({ is_active: false, paused_at: null })
       .eq("tenant_id", owner.tenantId);
     if (error) throw new AppError("Webhook leads could not be stopped. Try again.", { status: 500, code: "CUSTOM_WEBHOOK_STOP_FAILED" });
+  }
+
+  /**
+   * Pauses webhook leads (`paused` true) or resumes them (false), owner only. While paused, every request to the URL is
+   * refused with 404 like a wrong URL and nothing is read, logged or saved (custom-lead-webhook-service.ts); Replace
+   * URL keeps the pause. Only an active webhook can be paused or resumed: none yet, or stopped = 404.
+   */
+  public async setPaused(paused: boolean): Promise<{ paused: boolean }> {
+    const owner = await resolveOwner();
+    const { data, error } = await getSupabaseAdminClient().from("custom_lead_webhooks")
+      .update({ paused_at: paused ? new Date().toISOString() : null })
+      .eq("tenant_id", owner.tenantId)
+      .eq("is_active", true)
+      .select("id");
+    if (error) {
+      throw new AppError(paused ? "Webhook leads could not be paused. Try again." : "Webhook leads could not be resumed. Try again.", { status: 500, code: "CUSTOM_WEBHOOK_PAUSE_FAILED" });
+    }
+    if (!data || data.length === 0) throw new AppError("Create the webhook URL first.", { status: 404, code: "CUSTOM_WEBHOOK_NOT_FOUND" });
+    return { paused };
   }
 }
 
