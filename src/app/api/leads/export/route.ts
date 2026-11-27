@@ -77,6 +77,8 @@ function exportAdName(row: { source: string; adName: string }): string | null {
   if (row.source === "sulekha" && row.adName === "-") return null;
   // A NoBroker lead's too, when NoBroker sent no project.
   if (row.source === "nobroker" && row.adName === "-") return null;
+  // An OLX Home lead's too, when OLX Home sent no project.
+  if (row.source === "olx_home" && row.adName === "-") return null;
   return row.adName;
 }
 /** The second status, left empty when it is the same as the main status (the table shows that status once too). */

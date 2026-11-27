@@ -5,9 +5,9 @@ import { CHART_SETTLE_MS } from "@/features/dashboard/dashboard-download";
 import { DashboardPageClient } from "@/features/dashboard/dashboard-page-client";
 import { DASHBOARD_PLATFORMS } from "@/features/dashboard/dashboard-platforms";
 
-const mocks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn(), housing: vi.fn(), sulekha: vi.fn(), nobroker: vi.fn() }));
+const mocks = vi.hoisted(() => ({ connection: vi.fn(), google: vi.fn(), webhook: vi.fn(), portals: vi.fn(), magicbricks: vi.fn(), housing: vi.fn(), sulekha: vi.fn(), nobroker: vi.fn(), olxHome: vi.fn() }));
 vi.mock("next/link", () => ({ default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a> }));
-vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: mocks.connection, getGoogleAdsOverview: mocks.google, getCustomWebhookOverview: mocks.webhook, getPortalIntegrationStatuses: mocks.portals, getMagicbricksStatus: mocks.magicbricks, getHousingStatus: mocks.housing, getSulekhaStatus: mocks.sulekha, getNoBrokerStatus: mocks.nobroker }));
+vi.mock("@/services/crm-api-client", () => ({ getConnectionOverview: mocks.connection, getGoogleAdsOverview: mocks.google, getCustomWebhookOverview: mocks.webhook, getPortalIntegrationStatuses: mocks.portals, getMagicbricksStatus: mocks.magicbricks, getHousingStatus: mocks.housing, getSulekhaStatus: mocks.sulekha, getNoBrokerStatus: mocks.nobroker, getOlxHomeStatus: mocks.olxHome }));
 vi.mock("@/features/dashboard/navigation", () => ({ reloadPage: vi.fn(), goToLogin: vi.fn() }));
 // recharts needs real layout; the charts' own maths is covered by dashboard-format tests and the browser run.
 vi.mock("@/features/dashboard/dashboard-charts", () => ({
@@ -72,6 +72,7 @@ beforeEach(() => {
   mocks.housing.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
   mocks.sulekha.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
   mocks.nobroker.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
+  mocks.olxHome.mockReset().mockResolvedValue({ canManage: true, hasIntegration: false, integration: null });
   window.history.replaceState(null, "", "/dashboard");
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -406,6 +407,7 @@ describe("dashboard platform switch", () => {
     mocks.housing.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
     mocks.sulekha.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
     mocks.nobroker.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    mocks.olxHome.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
     useControlledClock();
     let titleWhilePrinting = "";
     const print = vi.fn(() => { titleWhilePrinting = document.title; });
@@ -630,6 +632,29 @@ describe("only the platforms the company uses", () => {
     await screen.findByTestId("month-leads");
     expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "NoBroker", "Telecaller"]);
   });
+
+  it("lists OLX Home only once the company generated its OLX Home URL, after NoBroker and before Telecaller", async () => {
+    mocks.portals.mockResolvedValue({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    mocks.magicbricks.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    mocks.housing.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    mocks.sulekha.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    mocks.nobroker.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    const { unmount } = render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).not.toContain("OLX Home");
+    unmount();
+    mocks.olxHome.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "99acres", "MagicBricks", "Housing.com", "Sulekha", "NoBroker", "OLX Home", "Telecaller"]);
+  });
+
+  it("keeps OLX Home when its check failed, without hiding any other platform", async () => {
+    mocks.olxHome.mockRejectedValue(new Error("network"));
+    render(<DashboardPageClient />);
+    await screen.findByTestId("month-leads");
+    expect(await listedPlatforms()).toEqual(["Facebook", "Google Ads", "Webhook", "OLX Home", "Telecaller"]);
+  });
 });
 
 describe("dashboard 99acres view", () => {
@@ -703,6 +728,22 @@ describe("dashboard NoBroker view", () => {
     await screen.findByTestId("month-leads");
     expect(statBodies[0]).toMatchObject({ platform: "nobroker" });
     expect(screen.getByText("This Month NoBroker Leads")).toBeInTheDocument();
+    expect(screen.getByTestId("Leads by label")).toBeInTheDocument();
+    expect(screen.getByTestId("Leads by status")).toBeInTheDocument();
+    expect(screen.queryByTestId("Leads by Facebook Page")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Campaign" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Integrations|Connection|Reconnect/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("dashboard OLX Home view", () => {
+  it("shows OLX Home leads with the common charts only, no Page, Ad or Campaign filter and no connection warning", async () => {
+    mocks.olxHome.mockResolvedValue({ canManage: true, hasIntegration: true, integration: null });
+    render(<DashboardPageClient initialPlatform="olx_home" />);
+    await screen.findByTestId("month-leads");
+    expect(statBodies[0]).toMatchObject({ platform: "olx_home" });
+    expect(screen.getByText("This Month OLX Home Leads")).toBeInTheDocument();
     expect(screen.getByTestId("Leads by label")).toBeInTheDocument();
     expect(screen.getByTestId("Leads by status")).toBeInTheDocument();
     expect(screen.queryByTestId("Leads by Facebook Page")).not.toBeInTheDocument();

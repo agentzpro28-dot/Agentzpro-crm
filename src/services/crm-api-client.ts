@@ -4,6 +4,7 @@ import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 import type { HousingOverview } from "@/lib/housing/housing";
 import type { SulekhaOverview } from "@/lib/sulekha/sulekha";
 import type { NoBrokerOverview } from "@/lib/nobroker/nobroker";
+import type { OlxHomeOverview } from "@/lib/olx-home/olx-home";
 
 type ApiErrorPayload = { error?: { message?: string; code?: string; details?: Record<string, unknown> } };
 
@@ -151,6 +152,12 @@ export async function getNoBrokerStatus(): Promise<NoBrokerOverview> { return sh
 /** The Integrations card's NoBroker view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
 export async function getNoBrokerOverview(): Promise<NoBrokerOverview> { return request<NoBrokerOverview>("/api/integrations/nobroker?details=1"); }
 export async function createNoBrokerIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/nobroker", { method: "POST", body: "{}" }); }
+
+/** Whether this company created its OLX Home URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
+export async function getOlxHomeStatus(): Promise<OlxHomeOverview> { return sharedConnectionCheck<OlxHomeOverview>("/api/integrations/olx-home", false); }
+/** The Integrations card's OLX Home view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
+export async function getOlxHomeOverview(): Promise<OlxHomeOverview> { return request<OlxHomeOverview>("/api/integrations/olx-home?details=1"); }
+export async function createOlxHomeIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/olx-home", { method: "POST", body: "{}" }); }
 
 /** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
 export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }

@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({ usePathname: mocks.usePathname }));
 
 afterEach(cleanup);
 
-it("links to all 8 integration docs", () => {
+it("links to all 9 integration docs", () => {
   mocks.usePathname.mockReturnValue("/docs/integrations/facebook");
   render(<DocsSidebar />);
   expect(screen.getAllByRole("link", { name: "Facebook" })[0]).toHaveAttribute("href", "/docs/integrations/facebook");
@@ -19,6 +19,7 @@ it("links to all 8 integration docs", () => {
   expect(screen.getAllByRole("link", { name: "Housing.com" })[0]).toHaveAttribute("href", "/docs/integrations/housing");
   expect(screen.getAllByRole("link", { name: "Sulekha" })[0]).toHaveAttribute("href", "/docs/integrations/sulekha");
   expect(screen.getAllByRole("link", { name: "NoBroker" })[0]).toHaveAttribute("href", "/docs/integrations/nobroker");
+  expect(screen.getAllByRole("link", { name: "OLX Home" })[0]).toHaveAttribute("href", "/docs/integrations/olx-home");
 });
 
 it("marks the current page's link as the active one", () => {
