@@ -169,3 +169,5 @@ export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalI
 /** The Integrations card's view of one portal: always read fresh, with the owner's URL and the last 10 failed requests. */
 export async function getPortalIntegrationOverview(portal: PortalId): Promise<PortalIntegrationOverview> { return request<PortalIntegrationOverview>(`/api/integrations/portals/${encodeURIComponent(portal)}?details=1`); }
 export async function createPortalIntegration(portal: PortalId): Promise<{ url: string }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "POST", body: "{}" }); }
+/** Pauses this portal's leads (every request is refused until Resume) or resumes them. Owner only. */
+export async function setPortalIntegrationPaused(portal: PortalId, paused: boolean): Promise<{ paused: boolean }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "PATCH", body: JSON.stringify({ paused }) }); }

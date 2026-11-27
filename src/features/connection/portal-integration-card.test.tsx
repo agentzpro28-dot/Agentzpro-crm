@@ -4,11 +4,12 @@ import type { PortalIntegrationOverview } from "@/lib/portal-leads/portals";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/leads/99acres/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [] } };
+const WAITING: PortalIntegrationOverview = { portal: "99acres", canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getPortalIntegrationOverview: vi.fn(),
   createPortalIntegration: vi.fn(),
+  setPortalIntegrationPaused: vi.fn(),
 }));
 
 const { PortalIntegrationCard, relativeTime } = await import("@/features/connection/portal-integration-card");
@@ -18,6 +19,7 @@ let writeText: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.mocked(api.getPortalIntegrationOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createPortalIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
+  vi.mocked(api.setPortalIntegrationPaused).mockReset().mockImplementation(async (_portal, paused) => ({ paused }));
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -72,7 +74,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("says Connected with the last lead time once a lead arrived", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), previousUrl: null, failedRequests: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), previousUrl: null, paused: false, failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.getByText("Last lead received 5 minutes ago")).toBeInTheDocument();
@@ -91,14 +93,14 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("after a regenerate, says until when the old URL works", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: null }, failedRequests: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: null }, paused: false, failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText(/^Your old URL works until /)).toBeInTheDocument();
     expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
   });
 
   it("warns when leads still arrive on the old URL", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" }, failedRequests: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" }, paused: false, failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText(/^Leads are still arriving on your old URL\. It stops on .+\. Send the new URL to 99acres\.$/)).toBeInTheDocument();
   });
@@ -110,7 +112,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("lists only the failed requests, each with its time and reason, and never the raw request", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [FAILED, { id: "log-2", createdAt: "2026-11-16T08:00:00Z", reason: "Unsupported format" }] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [FAILED, { id: "log-2", createdAt: "2026-11-16T08:00:00Z", reason: "Unsupported format" }] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByRole("heading", { name: "Failed requests" })).toBeInTheDocument();
     expect(screen.getByText("These 99acres enquiries could not be saved. Contact AgentzPro support with the time shown.")).toBeInTheDocument();
@@ -143,7 +145,7 @@ describe("PortalIntegrationCard (99acres)", () => {
   });
 
   it("offers Regenerate when the URL cannot be shown, and still shows the real status", async () => {
-    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, previousUrl: null, failedRequests: [] } });
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...WAITING, integration: { url: null, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } });
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to 99acres.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
@@ -156,6 +158,98 @@ describe("PortalIntegrationCard (99acres)", () => {
     vi.mocked(api.getPortalIntegrationOverview).mockRejectedValue(new Error("99acres details could not be loaded. Try again."));
     render(<PortalIntegrationCard portal="99acres" />);
     expect(await screen.findByText("99acres details could not be loaded. Try again.")).toBeInTheDocument();
+  });
+});
+
+const CONNECTED_AT = "2026-11-17T09:00:00Z";
+const CONNECTED: PortalIntegrationOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT } };
+const PAUSED: PortalIntegrationOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT, paused: true } };
+
+describe("PortalIntegrationCard (99acres) Pause / Resume", () => {
+  it("puts Regenerate URL and Pause side by side in one row", async () => {
+    render(<PortalIntegrationCard portal="99acres" />);
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    const regenerate = screen.getByRole("button", { name: "Regenerate URL" });
+    expect(pause.parentElement).toBe(regenerate.parentElement);
+    expect(regenerate.className).toBe("button");
+  });
+
+  it("asks first: Cancel (focused, at the top) and Esc change nothing", async () => {
+    render(<PortalIntegrationCard portal="99acres" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Pause 99acres leads?" });
+    expect(dialog).toHaveTextContent("While paused, every lead 99acres sends is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving 99acres leads in your CRM again.");
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(api.setPortalIntegrationPaused).not.toHaveBeenCalled();
+  });
+
+  it("OK pauses: the badge says Paused, the button turns to Resume and Connected is no longer shown", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(PAUSED);
+    render(<PortalIntegrationCard portal="99acres" />);
+    expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(api.setPortalIntegrationPaused).toHaveBeenCalledWith("99acres", true));
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(screen.getByText("Paused", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last lead received/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/The status turns Connected/)).not.toBeInTheDocument();
+    expect(screen.getByText("Lead delivery paused")).toBeInTheDocument();
+    expect(screen.getByText("Last lead")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("Resume needs no pop-up and brings Pause back", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(CONNECTED);
+    render(<PortalIntegrationCard portal="99acres" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.setPortalIntegrationPaused).toHaveBeenCalledWith("99acres", false));
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+  });
+
+  it("stays paused after a Regenerate (Resume is still shown)", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue(PAUSED);
+    render(<PortalIntegrationCard portal="99acres" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Regenerate URL" }));
+    const buttons = screen.getAllByRole("button", { name: "Regenerate URL" });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(api.createPortalIntegration).toHaveBeenCalledWith("99acres"));
+    expect(await screen.findByText("New URL created. Send it to 99acres.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+  });
+
+  it("while paused, never says leads still arrive on the old URL", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ ...PAUSED, integration: { ...PAUSED.integration!, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" } } });
+    render(<PortalIntegrationCard portal="99acres" />);
+    expect(await screen.findByText(/Your old URL is paused too/)).toBeInTheDocument();
+    expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
+  });
+
+  it("shows why a pause failed and keeps Pause", async () => {
+    vi.mocked(api.setPortalIntegrationPaused).mockRejectedValue(new Error("99acres leads could not be paused. Try again."));
+    render(<PortalIntegrationCard portal="99acres" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    expect(await screen.findByText("99acres leads could not be paused. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  });
+
+  it("gives an employee no Pause, no Resume and no Paused label", async () => {
+    vi.mocked(api.getPortalIntegrationOverview).mockResolvedValue({ portal: "99acres", canManage: false, hasIntegration: true, integration: null });
+    render(<PortalIntegrationCard portal="99acres" />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });
 

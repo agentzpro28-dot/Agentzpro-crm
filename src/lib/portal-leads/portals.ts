@@ -58,6 +58,8 @@ export interface PortalIntegrationOverview {
     url: string | null;
     lastLeadAt: string | null;
     previousUrl: { validUntil: string; lastLeadAt: string | null } | null;
+    /** The owner paused this portal's leads: every request is refused (404) until Resume. */
+    paused: boolean;
     failedRequests: PortalFailedRequestView[];
   } | null;
 }
