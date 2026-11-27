@@ -130,6 +130,23 @@ describe("CustomWebhookConnectionCard", () => {
     expect(screen.queryByText("Lead delivery paused")).not.toBeInTheDocument();
   });
 
+  it("never says Leads arriving while paused; it shows only when the last lead came", async () => {
+    vi.mocked(api.getCustomWebhookOverview).mockResolvedValue({ ...ACTIVE, webhook: { url: URL_VALUE, lastLeadAt: "2026-11-11T10:00:00Z", paused: true } });
+    render(<CustomWebhookConnectionCard />);
+    expect(await screen.findByText("Lead delivery paused")).toBeInTheDocument();
+    expect(screen.queryByText("Leads arriving")).not.toBeInTheDocument();
+    expect(screen.getByText("Last lead")).toBeInTheDocument();
+    expect(screen.queryByText("None yet")).not.toBeInTheDocument();
+  });
+
+  it("shows Replace URL, Pause and Stop together in one row", async () => {
+    render(<CustomWebhookConnectionCard />);
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    const row = pause.parentElement as HTMLElement;
+    expect(row).toContainElement(screen.getByRole("button", { name: "Replace URL" }));
+    expect(row).toContainElement(screen.getByRole("button", { name: "Stop receiving webhook leads" }));
+  });
+
   it("keeps Stop available while paused", async () => {
     vi.mocked(api.getCustomWebhookOverview).mockResolvedValue(PAUSED);
     render(<CustomWebhookConnectionCard />);

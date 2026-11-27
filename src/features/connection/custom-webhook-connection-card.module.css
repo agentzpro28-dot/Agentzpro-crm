@@ -25,3 +25,13 @@
 
 .pausedLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--warning); font-weight: 800; }
 .pausedLine svg { flex: none; }
+
+/* Replace URL, Pause / Resume and Stop side by side in one row (wraps only when the card is too narrow). */
+.actionRow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+/* Fixed colours (not the theme's --warning / --success, which turn light in dark mode) so the white text stays readable. */
+.actionRow .pauseButton { background: #b45309; color: #fff; }
+.actionRow .pauseButton:hover:not(:disabled) { background: #92400e; }
+
+.actionRow .resumeButton { background: #16823a; color: #fff; }
+.actionRow .resumeButton:hover:not(:disabled) { background: #11652d; }

@@ -97,24 +97,20 @@ export function CustomWebhookConnectionCard() {
           </div>
           <p className="field-help">Phone or email is required. Any other field, such as city or budget, is saved with the lead. A lead sent again with the same lead_id is not saved twice.</p>
         </div>
-        {webhook.lastLeadAt ? <div className="google-arrival">
+        {webhook.lastLeadAt && !paused ? <div className="google-arrival">
           <strong className="google-arrival__status">Leads arriving<Check aria-hidden="true" size={18} /></strong>
           <span className="field-help">Last lead {formatDateTime(webhook.lastLeadAt)}</span>
-        </div> : <div className="meta-list"><div className="meta-item"><span>Last lead</span><strong>None yet</strong></div></div>}
-        <div className="button-group">
+        </div> : <div className="meta-list"><div className="meta-item"><span>Last lead</span><strong>{webhook.lastLeadAt ? formatDateTime(webhook.lastLeadAt) : "None yet"}</strong></div></div>}
+        {paused ? <p className={styles.pausedLine}>Lead delivery paused<Pause aria-hidden="true" size={18} /></p> : null}
+        {confirmReplace ? <span className="field-help">The old URL stops working at once. Paste the new URL into every tool that sends leads.</span> : null}
+        <div className={`button-group ${styles.actionRow}`}>
           {confirmReplace ? <>
-            <span className="field-help">The old URL stops working at once. Paste the new URL into every tool that sends leads.</span>
             <button className="button button--danger" type="button" disabled={busy === "replace"} onClick={() => void run("replace", async () => { await createCustomWebhook(); await reload(); setConfirmReplace(false); setShowUrl(false); setMessage({ tone: "success", text: "New URL created. Paste it into your tools." }); })}>{busy === "replace" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Replace URL</button>
             <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(false)}><X aria-hidden="true" size={18} />Cancel</button>
-          </> : <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Replace URL</button>}
-        </div>
-        {paused ? <p className={styles.pausedLine}>Lead delivery paused<Pause aria-hidden="true" size={18} /></p> : null}
-        <div className="button-group">
+          </> : <button className="button" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Replace URL</button>}
           {paused
-            ? <button className="button" type="button" disabled={busy === "resume"} onClick={() => void run("resume", async () => { await setCustomWebhookPaused(false); await reload(); })}>{busy === "resume" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}Resume</button>
-            : <button className="button button--secondary" type="button" disabled={busy === "pause"} onClick={() => setConfirmPause(true)}>{busy === "pause" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Pause aria-hidden="true" size={18} />}Pause</button>}
-        </div>
-        <div className="button-group">
+            ? <button className={`button ${styles.resumeButton}`} type="button" disabled={busy === "resume"} onClick={() => void run("resume", async () => { await setCustomWebhookPaused(false); await reload(); })}>{busy === "resume" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}Resume</button>
+            : <button className={`button ${styles.pauseButton}`} type="button" disabled={busy === "pause"} onClick={() => setConfirmPause(true)}>{busy === "pause" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Pause aria-hidden="true" size={18} />}Pause</button>}
           <button className="button button--danger" type="button" disabled={busy === "stop"} onClick={() => void run("stop", async () => { await stopCustomWebhook(); setConfirmReplace(false); await reload(); setStoppedNotice(true); })}>{busy === "stop" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Unplug aria-hidden="true" size={18} />}Stop receiving webhook leads</button>
         </div>
       </> : overview.webhookStopped ? <>
