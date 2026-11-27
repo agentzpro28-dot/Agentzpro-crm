@@ -38,6 +38,8 @@ export interface NoBrokerOverview {
     url: string | null;
     lastLeadAt: string | null;
     previousUrl: { validUntil: string; lastLeadAt: string | null } | null;
+    /** The owner paused NoBroker leads: every request is refused (404) until Resume. */
+    paused: boolean;
     failedRequests: NoBrokerFailedRequestView[];
   } | null;
 }
