@@ -89,6 +89,8 @@ describe("CustomWebhookConnectionCard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
     const popup = await screen.findByRole("alertdialog");
     expect(popup).toHaveTextContent("Pause webhook leads?");
+    // A stray Enter must never pause leads: focus starts on Cancel.
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
     expect(popup).toHaveTextContent("While paused, every lead sent to your webhook is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving webhook leads in your CRM again.");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();

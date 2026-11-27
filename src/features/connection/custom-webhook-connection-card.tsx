@@ -148,19 +148,22 @@ function WebhookStoppedPopup({ onOk }: { onOk: () => void }) {
   </div>;
 }
 
-/** Asks before webhook leads are paused: Cancel at the top (or Esc) changes nothing; OK pauses. */
+/**
+ * Asks before webhook leads are paused: Cancel at the top (or Esc) changes nothing; OK pauses. Focus starts on Cancel,
+ * so a stray Enter never pauses leads.
+ */
 function PauseWebhookPopup({ onCancel, onOk }: { onCancel: () => void; onOk: () => void }) {
   const titleId = useId();
   const textId = useId();
-  const okRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { okRef.current?.focus(); }, []);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { cancelRef.current?.focus(); }, []);
   return <div className="mvp-invite-popup__backdrop" onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }}>
     <div className={`mvp-invite-popup ${styles.pausePopup}`} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={textId}>
-      <button type="button" className={styles.pauseCancel} onClick={onCancel}><X aria-hidden="true" size={16} />Cancel</button>
+      <button type="button" className={styles.pauseCancel} ref={cancelRef} onClick={onCancel}><X aria-hidden="true" size={16} />Cancel</button>
       <span className={`mvp-invite-popup__icon ${styles.pauseIcon}`} aria-hidden="true"><Pause size={28} /></span>
       <h4 id={titleId}>Pause webhook leads?</h4>
       <p id={textId}>While paused, every lead sent to your webhook is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving webhook leads in your CRM again.</p>
-      <button type="button" className="mvp-invite-popup__ok" ref={okRef} onClick={onOk}>OK</button>
+      <button type="button" className="mvp-invite-popup__ok" onClick={onOk}>OK</button>
     </div>
   </div>;
 }
