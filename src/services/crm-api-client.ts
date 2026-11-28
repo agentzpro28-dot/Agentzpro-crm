@@ -181,3 +181,5 @@ export async function getPortalIntegrationOverview(portal: PortalId): Promise<Po
 export async function createPortalIntegration(portal: PortalId): Promise<{ url: string }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "POST", body: "{}" }); }
 /** Pauses this portal's leads (every request is refused until Resume) or resumes them. Owner only. */
 export async function setPortalIntegrationPaused(portal: PortalId, paused: boolean): Promise<{ paused: boolean }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "PATCH", body: JSON.stringify({ paused }) }); }
+/** Disconnects this portal: its current and old URL are refused at once; a new URL can be generated later. Owner only. */
+export async function disconnectPortalIntegration(portal: PortalId): Promise<{ disconnected: true }> { return changeConnection(`/api/integrations/portals/${encodeURIComponent(portal)}`, { method: "DELETE" }); }

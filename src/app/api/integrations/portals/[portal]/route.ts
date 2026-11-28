@@ -11,7 +11,7 @@ type Params = { params: Promise<{ portal: string }> };
 
 // One portal's integration (99acres, ...). GET: the Integrations card; with ?details=1 the owner also gets the webhook
 // URL, the last lead time and the last 10 failed requests. POST: create the URL, or replace it (owner only). PATCH:
-// pause or resume (below).
+// pause or resume (below). DELETE: disconnect (below).
 export async function GET(request: Request, { params }: Params) {
   try {
     const url = new URL(request.url);
@@ -40,6 +40,17 @@ export async function PATCH(request: Request, { params }: Params) {
     const portal = await portalFrom(params);
     const body = await parseJsonBody(request, pauseSchema);
     return createSuccessResponse(await new PortalIntegrationService().setPaused(portal, body.paused));
+  } catch (error) {
+    return createErrorResponse(error, request);
+  }
+}
+
+// DELETE: disconnect this portal (owner only). Every request to the current URL and the old URL then gets 404 and
+// nothing is saved; leads already received stay. A new URL can be generated later with POST.
+export async function DELETE(request: Request, { params }: Params) {
+  try {
+    assertSameOrigin(request);
+    return createSuccessResponse(await new PortalIntegrationService().disconnect(await portalFrom(params)));
   } catch (error) {
     return createErrorResponse(error, request);
   }

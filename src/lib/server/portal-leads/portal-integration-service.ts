@@ -96,7 +96,7 @@ export class PortalIntegrationService {
       .maybeSingle();
     if (error) throw new AppError("Portal details could not be loaded.", { status: 500, code: "PORTAL_OVERVIEW_FAILED" });
     const row = data as IntegrationRow | null;
-    const overview: PortalIntegrationOverview = { portal, canManage, hasIntegration: Boolean(row), integration: null };
+    const overview: PortalIntegrationOverview = { portal, canManage, hasIntegration: Boolean(row), disconnected: Boolean(row && !row.is_active), integration: null };
     if (!canManage || !options.details || !row || !row.is_active) return overview;
 
     // Two reads at the same time: the requests marked failed, and the ones whose save stopped part-way (still "received").
@@ -162,6 +162,25 @@ export class PortalIntegrationService {
     }
     if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "PORTAL_INTEGRATION_NOT_FOUND" });
     return { paused };
+  }
+
+  /**
+   * Disconnects this portal (owner only). One UPDATE: is_active = false, and the pause and the old URL are cleared, so
+   * every request to the current URL and to the old URL gets 404 at once and nothing is saved (find_portal_integration
+   * and ingest_portal_lead_on_url both require is_active). The row stays, so leads already received keep their link and
+   * the portal stays in the /leads Source filter. Generating a URL again makes a brand-new one with no old URL
+   * (save_portal_url). Disconnecting twice changes nothing more.
+   */
+  public async disconnect(portal: PortalId): Promise<{ disconnected: true }> {
+    const owner = await resolveOwner(portal);
+    const { data, error } = await getSupabaseAdminClient().from("portal_integrations")
+      .update({ is_active: false, paused_at: null, previous_url_token_hash: null, previous_valid_until: null, previous_last_received_at: null })
+      .eq("tenant_id", owner.tenantId)
+      .eq("portal_name", portal)
+      .select("id");
+    if (error) throw new AppError(`${PORTALS[portal].label} could not be disconnected. Try again.`, { status: 500, code: "PORTAL_DISCONNECT_FAILED" });
+    if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "PORTAL_INTEGRATION_NOT_FOUND" });
+    return { disconnected: true };
   }
 }
 

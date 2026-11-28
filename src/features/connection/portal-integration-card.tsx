@@ -1,15 +1,15 @@
 "use client";
 
-import { Building2, Check, Copy, Eye, EyeOff, KeyRound, Loader2, Pause, Play, RefreshCw, X } from "lucide-react";
+import { Building2, Check, Copy, Eye, EyeOff, KeyRound, Loader2, Pause, Play, RefreshCw, Unplug, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import { formatDateTime } from "@/lib/date-utils";
 import { PORTAL_PREVIOUS_URL_DAYS, PORTALS, type PortalId, type PortalIntegrationOverview } from "@/lib/portal-leads/portals";
-import { createPortalIntegration, getPortalIntegrationOverview, setPortalIntegrationPaused } from "@/services/crm-api-client";
+import { createPortalIntegration, disconnectPortalIntegration, getPortalIntegrationOverview, setPortalIntegrationPaused } from "@/services/crm-api-client";
 import styles from "./portal-integration-card.module.css";
 
-type Busy = "create" | "replace" | "refresh" | "pause" | "resume" | null;
+type Busy = "create" | "replace" | "refresh" | "pause" | "resume" | "disconnect" | null;
 type Message = { tone: "success" | "danger" | "warning" | "info"; text: string };
 
 /**
@@ -74,6 +74,7 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
   const badge = !overview ? null
     : paused ? { tone: "warning" as const, text: "Paused" }
     : integration ? (integration.lastLeadAt ? { tone: "success" as const, text: "Connected" } : { tone: "warning" as const, text: "Waiting for first lead" })
+      : overview.disconnected ? { tone: "danger" as const, text: "Disconnected" }
       : overview.hasIntegration && !canManage ? { tone: "success" as const, text: "Set up" } : { tone: "info" as const, text: "Not set up" };
 
   return <section className={`panel integration-card integration-card--portal integration-card--portal-${portal}`} aria-labelledby={titleId}><div className="panel__body stack">
@@ -107,7 +108,12 @@ export function PortalIntegrationCard({ portal }: { portal: PortalId }) {
             {paused
               ? <button className={`button ${styles.resumeButton}`} type="button" disabled={busy === "resume"} onClick={() => void run("resume", async () => { await setPortalIntegrationPaused(portal, false); await reload(); })}>{busy === "resume" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}Resume</button>
               : <button className={`button ${styles.pauseButton}`} type="button" disabled={busy === "pause"} onClick={() => setConfirmPause(true)}>{busy === "pause" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Pause aria-hidden="true" size={18} />}Pause</button>}
+            <button className={`button ${styles.disconnectButton}`} type="button" disabled={busy === "disconnect"} onClick={() => void run("disconnect", async () => { await disconnectPortalIntegration(portal); setConfirmReplace(false); setShowUrl(false); await reload(); })}>{busy === "disconnect" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Unplug aria-hidden="true" size={18} />}Disconnect</button>
           </div>
+        </> : overview.disconnected ? <>
+          <p className={styles.disconnectedLine}>Lead delivery stopped<X aria-hidden="true" size={18} /></p>
+          <p className="field-help">To receive {label} leads again, generate a new URL and send it to your {label} account manager.</p>
+          <div className="button-group"><button className="button" type="button" disabled={busy === "create"} onClick={() => void run("create", async () => { await createPortalIntegration(portal); await reload(); setMessage({ tone: "success", text: `New URL created. Send it to ${label}.` }); })}>{busy === "create" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <KeyRound aria-hidden="true" size={18} />}Generate new webhook URL</button></div>
         </> : <>
           <p className="field-help">Create the secret URL {label} will send your leads to.</p>
           <div className="button-group"><button className="button" type="button" disabled={busy === "create"} onClick={() => void run("create", async () => { await createPortalIntegration(portal); await reload(); })}>{busy === "create" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <KeyRound aria-hidden="true" size={18} />}Generate webhook URL</button></div>

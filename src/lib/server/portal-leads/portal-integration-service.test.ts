@@ -69,7 +69,7 @@ describe("PortalIntegrationService.getOverview", () => {
     const { failed } = overviewTables(row({ last_received_at: "2026-11-17T09:00:00Z" }), { data: [FAILED], error: null });
     const service = new PortalIntegrationService();
     await expect(service.getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({
-      portal: "99acres", canManage: true, hasIntegration: true,
+      portal: "99acres", canManage: true, hasIntegration: true, disconnected: false,
       integration: {
         url: `${ORIGIN}/api/webhooks/leads/99acres/${TOKEN}`, lastLeadAt: "2026-11-17T09:00:00Z", previousUrl: null, paused: false,
         failedRequests: [{ id: "log-1", createdAt: "2026-11-17T10:00:00Z", reason: "Mobile number or email not found" }],
@@ -79,7 +79,7 @@ describe("PortalIntegrationService.getOverview", () => {
     expect(failed.eq).toHaveBeenCalledWith("integration_id", "integration-1");
     expect(failed.eq).toHaveBeenCalledWith("status", "failed");
     expect(failed.limit).toHaveBeenCalledWith(10);
-    await expect(service.getOverview("99acres", ORIGIN)).resolves.toEqual({ portal: "99acres", canManage: true, hasIntegration: true, integration: null });
+    await expect(service.getOverview("99acres", ORIGIN)).resolves.toEqual({ portal: "99acres", canManage: true, hasIntegration: true, disconnected: false, integration: null });
   });
 
   it("reads the old-URL columns, and shows the old URL only while it still works", async () => {
@@ -189,7 +189,7 @@ describe("portalFailureReason", () => {
   it("never gives an employee the URL or the raw requests", async () => {
     mocks.access.mockResolvedValue(EMPLOYEE);
     mocks.from.mockReturnValue(chain({ data: row(), error: null }));
-    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: false, hasIntegration: true, integration: null });
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: false, hasIntegration: true, disconnected: false, integration: null });
     expect(mocks.from).toHaveBeenCalledTimes(1);
   });
 
@@ -213,7 +213,7 @@ describe("portalFailureReason", () => {
   it("reports no integration as not set up", async () => {
     mocks.access.mockResolvedValue(OWNER);
     mocks.from.mockReturnValue(chain({ data: null, error: null }));
-    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: true, hasIntegration: false, integration: null });
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: true, hasIntegration: false, disconnected: false, integration: null });
   });
 });
 
@@ -264,7 +264,7 @@ describe("PortalIntegrationService pause", () => {
   it("never tells an employee about a pause", async () => {
     mocks.access.mockResolvedValue(EMPLOYEE);
     mocks.from.mockReturnValue(chain({ data: row({ paused_at: "2026-11-27T10:00:00Z" }), error: null }));
-    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: false, hasIntegration: true, integration: null });
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: false, hasIntegration: true, disconnected: false, integration: null });
   });
 
   it("pauses and resumes only this company's active 99acres URL", async () => {
@@ -297,5 +297,54 @@ describe("PortalIntegrationService pause", () => {
     mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
     await expect(new PortalIntegrationService().setPaused("99acres", true)).rejects.toMatchObject({ status: 500, message: "99acres leads could not be paused. Try again." });
     await expect(new PortalIntegrationService().setPaused("99acres", false)).rejects.toMatchObject({ status: 500, message: "99acres leads could not be resumed. Try again." });
+  });
+});
+
+describe("PortalIntegrationService disconnect", () => {
+  it("stops this company's 99acres URL and its old URL in one update, and clears the pause", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "integration-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    await expect(new PortalIntegrationService().disconnect("99acres")).resolves.toEqual({ disconnected: true });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(mocks.from).toHaveBeenCalledWith("portal_integrations");
+    expect(query.update).toHaveBeenCalledTimes(1);
+    expect(query.update).toHaveBeenCalledWith({ is_active: false, paused_at: null, previous_url_token_hash: null, previous_valid_until: null, previous_last_received_at: null });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("portal_name", "99acres");
+    // Disconnecting twice (two tabs, a double click) is the same update again, never an error.
+    expect(query.eq).not.toHaveBeenCalledWith("is_active", true);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new PortalIntegrationService().disconnect("99acres")).rejects.toMatchObject({ status: 403, code: "PORTAL_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when there is none, and 500 when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new PortalIntegrationService().disconnect("99acres")).rejects.toMatchObject({ status: 404, code: "PORTAL_INTEGRATION_NOT_FOUND", message: "Generate the webhook URL first." });
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new PortalIntegrationService().disconnect("99acres")).rejects.toMatchObject({ status: 500, code: "PORTAL_DISCONNECT_FAILED", message: "99acres could not be disconnected. Try again." });
+  });
+
+  it("tells the owner and an employee that 99acres is disconnected, without the URL or the failed requests", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: row({ is_active: false }), error: null }));
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: true, hasIntegration: true, disconnected: true, integration: null });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new PortalIntegrationService().getOverview("99acres", ORIGIN, { details: true })).resolves.toEqual({ portal: "99acres", canManage: false, hasIntegration: true, disconnected: true, integration: null });
+  });
+
+  it("keeps a disconnected 99acres in the Source filter list", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    const query = chain({ data: [{ portal_name: "99acres" }], error: null });
+    mocks.from.mockReturnValue(query);
+    await expect(new PortalIntegrationService().listStatuses()).resolves.toEqual({ portals: [{ portal: "99acres", hasIntegration: true }] });
+    expect(query.eq).not.toHaveBeenCalledWith("is_active", expect.anything());
   });
 });
