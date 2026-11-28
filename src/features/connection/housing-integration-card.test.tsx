@@ -142,7 +142,8 @@ describe("HousingIntegrationCard Pause / Resume", () => {
     const pause = await screen.findByRole("button", { name: "Pause" });
     const regenerate = screen.getByRole("button", { name: "Regenerate URL" });
     expect(pause.parentElement).toBe(regenerate.parentElement);
-    expect(regenerate.className).toBe("button");
+    // One fixed blue in light and dark mode, from this card's own CSS.
+    expect(regenerate.className).toMatch(/^button \S*regenerateButton\S*$/);
   });
 
   it("asks first: Cancel (focused, at the top) and Esc change nothing", async () => {
