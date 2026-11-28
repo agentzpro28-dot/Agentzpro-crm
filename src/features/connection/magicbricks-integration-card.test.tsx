@@ -4,11 +4,12 @@ import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/magicbricks/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-18T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: MagicbricksOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [] } };
+const WAITING: MagicbricksOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getMagicbricksOverview: vi.fn(),
   createMagicbricksIntegration: vi.fn(),
+  setMagicbricksPaused: vi.fn(),
 }));
 
 const { MagicbricksIntegrationCard, magicbricksRelativeTime } = await import("@/features/connection/magicbricks-integration-card");
@@ -18,6 +19,7 @@ let writeText: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.mocked(api.getMagicbricksOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createMagicbricksIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
+  vi.mocked(api.setMagicbricksPaused).mockReset().mockImplementation(async (paused) => ({ paused }));
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -81,14 +83,14 @@ describe("MagicbricksIntegrationCard", () => {
   });
 
   it("after a regenerate, says until when the old URL works", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: null }, failedRequests: [] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: null }, paused: false, failedRequests: [] } });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText(/^Your old URL works until /)).toBeInTheDocument();
     expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
   });
 
   it("warns when leads still arrive on the old URL", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" }, failedRequests: [] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" }, paused: false, failedRequests: [] } });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText(/^Leads are still arriving on your old URL\. It stops on .+\. Send the new URL to your MagicBricks account manager\.$/)).toBeInTheDocument();
   });
@@ -100,7 +102,7 @@ describe("MagicbricksIntegrationCard", () => {
   });
 
   it("shows Connected and the last lead time once a lead arrived", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), previousUrl: null, failedRequests: [] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: new Date(Date.now() - 5 * 60_000).toISOString(), previousUrl: null, paused: false, failedRequests: [] } });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.getByText("Last lead received 5 minutes ago")).toBeInTheDocument();
@@ -113,7 +115,7 @@ describe("MagicbricksIntegrationCard", () => {
   });
 
   it("shows each failed request's time and short reason", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [FAILED] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [FAILED] } });
     render(<MagicbricksIntegrationCard />);
     const heading = await screen.findByRole("heading", { name: "Failed requests" });
     const section = heading.closest("div")?.parentElement?.parentElement as HTMLElement;
@@ -122,7 +124,7 @@ describe("MagicbricksIntegrationCard", () => {
   });
 
   it("offers Regenerate when the stored URL cannot be shown", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: null, lastLeadAt: null, previousUrl: null, failedRequests: [] } });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ ...WAITING, integration: { url: null, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("This URL can't be shown. Regenerate it, then send the new URL to your MagicBricks account manager.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
@@ -141,6 +143,101 @@ describe("MagicbricksIntegrationCard", () => {
     vi.mocked(api.getMagicbricksOverview).mockRejectedValueOnce(new Error("MagicBricks details could not be loaded."));
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("MagicBricks details could not be loaded.")).toBeInTheDocument();
+  });
+});
+
+const CONNECTED_AT = "2026-11-18T09:00:00Z";
+const CONNECTED: MagicbricksOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT } };
+const PAUSED: MagicbricksOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT, paused: true } };
+
+describe("MagicbricksIntegrationCard Pause / Resume", () => {
+  it("puts Regenerate URL and Pause side by side in one row", async () => {
+    render(<MagicbricksIntegrationCard />);
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    const regenerate = screen.getByRole("button", { name: "Regenerate URL" });
+    expect(pause.parentElement).toBe(regenerate.parentElement);
+    expect(regenerate.className).toBe("button");
+  });
+
+  it("asks first: Cancel (focused, at the top) and Esc change nothing", async () => {
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Pause MagicBricks leads?" });
+    expect(dialog).toHaveTextContent("While paused, every lead MagicBricks sends is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving MagicBricks leads in your CRM again.");
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(api.setMagicbricksPaused).not.toHaveBeenCalled();
+  });
+
+  it("OK pauses: the badge says Paused, the button turns to Resume and Connected is no longer shown", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(PAUSED);
+    render(<MagicbricksIntegrationCard />);
+    expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(api.setMagicbricksPaused).toHaveBeenCalledWith(true));
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(screen.getByText("Paused", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last lead received/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/The status turns Connected/)).not.toBeInTheDocument();
+    expect(screen.getByText("Lead delivery paused")).toBeInTheDocument();
+    expect(screen.getByText("Last lead")).toBeInTheDocument();
+    expect(screen.getByText("Click Resume to start receiving MagicBricks leads again.")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("Resume needs no pop-up and brings Pause back", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(CONNECTED);
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.setMagicbricksPaused).toHaveBeenCalledWith(false));
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+  });
+
+  it("stays paused after a Regenerate (Resume is still shown)", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValue(PAUSED);
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Regenerate URL" }));
+    const buttons = screen.getAllByRole("button", { name: "Regenerate URL" });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(api.createMagicbricksIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your MagicBricks account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(api.setMagicbricksPaused).not.toHaveBeenCalled();
+  });
+
+  it("while paused, never says leads still arrive on the old URL", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValue({ ...PAUSED, integration: { ...PAUSED.integration!, previousUrl: { validUntil: "2026-11-28T10:00:00Z", lastLeadAt: "2026-11-21T10:00:00Z" } } });
+    render(<MagicbricksIntegrationCard />);
+    expect(await screen.findByText(/^Your old URL is paused too\. It stops for good on .+\.$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
+  });
+
+  it("shows why a pause failed and keeps Pause", async () => {
+    vi.mocked(api.setMagicbricksPaused).mockRejectedValue(new Error("MagicBricks leads could not be paused. Try again."));
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    expect(await screen.findByText("MagicBricks leads could not be paused. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  });
+
+  it("gives an employee no Pause, no Resume and no Paused label", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    render(<MagicbricksIntegrationCard />);
+    expect(await screen.findByText("Only the company owner can set up MagicBricks.")).toBeInTheDocument();
+    expect(screen.getByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });
 

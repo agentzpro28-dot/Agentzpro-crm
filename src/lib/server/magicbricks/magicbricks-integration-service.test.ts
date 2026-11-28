@@ -25,7 +25,7 @@ function chain(result: { data?: unknown; error: unknown }) {
 
 const row = (extra: Record<string, unknown> = {}) => ({
   id: "mb-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, url_rotated_at: null,
-  previous_valid_until: null, previous_last_received_at: null, ...extra,
+  previous_valid_until: null, previous_last_received_at: null, paused_at: null, ...extra,
 });
 
 function overviewTables(integration: unknown, failedResult: { data?: unknown; error: unknown } = { data: [], error: null }, stuckResult: { data?: unknown; error: unknown } = { data: [], error: null }) {
@@ -73,6 +73,7 @@ describe("MagicbricksIntegrationService.getOverview", () => {
         url: `${ORIGIN}/api/webhooks/magicbricks/${TOKEN}`,
         lastLeadAt: "2026-11-18T11:00:00Z",
         previousUrl: null,
+        paused: false,
         failedRequests: [
           { id: "log-4", createdAt: "2026-11-18T11:30:00Z", reason: "Not saved" },
           { id: "log-2", createdAt: "2026-11-18T10:00:00Z", reason: "Mobile number or email not found" },
@@ -92,7 +93,7 @@ describe("MagicbricksIntegrationService.getOverview", () => {
     mocks.access.mockResolvedValue(OWNER);
     const { integrationRead } = overviewTables(row({ previous_valid_until: "2026-11-28T06:00:00Z", previous_last_received_at: "2026-11-21T05:00:00Z" }));
     const overview = await new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true });
-    expect(integrationRead.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at");
+    expect(integrationRead.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at,paused_at");
     expect(overview.integration?.previousUrl).toEqual({ validUntil: "2026-11-28T06:00:00Z", lastLeadAt: "2026-11-21T05:00:00Z" });
 
     // Its 7 days are over: the database refuses it, so the card no longer mentions it.
@@ -158,6 +159,53 @@ describe("MagicbricksIntegrationService.createOrReplace", () => {
     mocks.access.mockResolvedValue(OWNER);
     mocks.rpc.mockResolvedValue({ data: null, error: { code: "XX000" } });
     await expect(new MagicbricksIntegrationService().createOrReplace(ORIGIN)).rejects.toMatchObject({ status: 500, code: "MAGICBRICKS_SAVE_FAILED" });
+  });
+});
+
+describe("MagicbricksIntegrationService pause", () => {
+  it("reads paused_at and tells the owner's card whether MagicBricks is paused", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const { integrationRead } = overviewTables(row({ paused_at: "2026-11-27T10:00:00Z" }));
+    const overview = await new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true });
+    expect(overview.integration?.paused).toBe(true);
+    expect(integrationRead.select).toHaveBeenCalledWith(expect.stringContaining("paused_at"));
+  });
+
+  it("pauses and resumes only this company's active MagicBricks URL", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-27T10:00:00Z") });
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "mb-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    const service = new MagicbricksIntegrationService();
+    await expect(service.setPaused(true)).resolves.toEqual({ paused: true });
+    expect(mocks.from).toHaveBeenCalledWith("magicbricks_integrations");
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: "2026-11-27T10:00:00.000Z" });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("is_active", true);
+    expect(query.select).toHaveBeenCalledWith("id");
+    await expect(service.setPaused(false)).resolves.toEqual({ paused: false });
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: null });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses anyone but the owner before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new MagicbricksIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 403, code: "MAGICBRICKS_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when there is no active URL", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new MagicbricksIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 404, code: "MAGICBRICKS_INTEGRATION_NOT_FOUND", message: "Generate the webhook URL first." });
+  });
+
+  it("fails clearly (500) when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new MagicbricksIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 500, code: "MAGICBRICKS_PAUSE_FAILED", message: "MagicBricks leads could not be paused. Try again." });
+    await expect(new MagicbricksIntegrationService().setPaused(false)).rejects.toMatchObject({ status: 500, code: "MAGICBRICKS_PAUSE_FAILED", message: "MagicBricks leads could not be resumed. Try again." });
   });
 });
 

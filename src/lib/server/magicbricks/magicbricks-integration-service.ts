@@ -57,6 +57,7 @@ type IntegrationRow = {
   url_rotated_at: string | null;
   previous_valid_until: string | null;
   previous_last_received_at: string | null;
+  paused_at: string | null;
 };
 type FailedRequestRow = { id: string; created_at: string; error_message: string | null };
 
@@ -71,7 +72,7 @@ export class MagicbricksIntegrationService {
     const canManage = access.membershipRole === "owner";
     const db = getSupabaseAdminClient();
     const { data, error } = await db.from("magicbricks_integrations")
-      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at")
+      .select("id,encrypted_url_token,is_active,last_received_at,url_rotated_at,previous_valid_until,previous_last_received_at,paused_at")
       .eq("tenant_id", access.tenantId)
       .maybeSingle();
     if (error) throw new AppError("MagicBricks details could not be loaded.", { status: 500, code: "MAGICBRICKS_OVERVIEW_FAILED" });
@@ -101,6 +102,7 @@ export class MagicbricksIntegrationService {
         // save_magicbricks_url clears last_received_at on a regenerate; sinceRotation also covers URLs replaced before that.
         lastLeadAt: sinceRotation(row.last_received_at, row.url_rotated_at),
         previousUrl,
+        paused: Boolean(row.paused_at),
         failedRequests: newestFailedRequests((stuck.data ?? []) as FailedRequestRow[], (failed.data ?? []) as FailedRequestRow[]).map(toFailedRequestView),
       },
     };
@@ -124,6 +126,27 @@ export class MagicbricksIntegrationService {
     });
     if (error) throw saveFailed();
     return { url: buildMagicbricksWebhookUrl(origin, token) };
+  }
+
+  /**
+   * Pauses MagicBricks leads, or resumes them (owner only). While paused, find_magicbricks_integration finds nothing, so
+   * every request to the current URL and to the old URL gets 404 and nothing is saved. A Regenerate keeps the pause.
+   */
+  public async setPaused(paused: boolean): Promise<{ paused: boolean }> {
+    const access = await requireCrmAccess();
+    if (access.membershipRole !== "owner") {
+      throw new AppError(`Only the company owner can manage ${MAGICBRICKS_LABEL}.`, { status: 403, code: "MAGICBRICKS_OWNER_REQUIRED" });
+    }
+    const { data, error } = await getSupabaseAdminClient().from("magicbricks_integrations")
+      .update({ paused_at: paused ? new Date().toISOString() : null })
+      .eq("tenant_id", access.tenantId)
+      .eq("is_active", true)
+      .select("id");
+    if (error) {
+      throw new AppError(paused ? `${MAGICBRICKS_LABEL} leads could not be paused. Try again.` : `${MAGICBRICKS_LABEL} leads could not be resumed. Try again.`, { status: 500, code: "MAGICBRICKS_PAUSE_FAILED" });
+    }
+    if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "MAGICBRICKS_INTEGRATION_NOT_FOUND" });
+    return { paused };
   }
 }
 
