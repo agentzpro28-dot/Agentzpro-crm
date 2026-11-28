@@ -37,7 +37,8 @@
 .logTime { color: var(--text); font-size: .875rem; font-weight: 600; }
 .logError { margin: 0; color: var(--danger); font-size: .875rem; overflow-wrap: anywhere; }
 
-/* Sulekha card only: Regenerate URL and Pause / Resume side by side in one row (wraps only when the card is too narrow). */
+/* Sulekha card only: Regenerate URL, Pause / Resume and Disconnect side by side in one row (wraps only when the card is
+   too narrow). */
 .actionRow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 
 /* Sulekha card only. Fixed colours (not the theme's --warning / --success, which turn light in dark mode) so the white
@@ -53,9 +54,21 @@
 .actionRow .regenerateButton { background: #1f6feb; color: #fff; }
 .actionRow .regenerateButton:hover:not(:disabled) { background: #174ea6; }
 
+/* Sulekha card only. Generate new webhook URL (after a Disconnect): the same fixed blue, for the same reason. */
+.actionRow .generateNewButton { background: #1f6feb; color: #fff; }
+.actionRow .generateNewButton:hover:not(:disabled) { background: #174ea6; }
+
+/* Sulekha card only. Disconnect keeps one fixed red in light and dark mode (white text stays readable on both). */
+.actionRow .disconnectButton { background: #c62828; color: #fff; }
+.actionRow .disconnectButton:hover:not(:disabled) { background: #a11d1d; }
+
 /* Sulekha card only: the "Lead delivery paused" line in step 2. */
 .pausedLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--warning); font-weight: 800; }
 .pausedLine svg { flex: none; }
+
+/* Sulekha card only: the "Lead delivery stopped" line in step 1 after a Disconnect. */
+.disconnectedLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--danger); font-weight: 800; }
+.disconnectedLine svg { flex: none; }
 
 /* Sulekha card only: the Pause pop-up's Cancel at the top, and its icon. */
 .pausePopup { position: relative; }

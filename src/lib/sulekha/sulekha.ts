@@ -26,8 +26,10 @@ export interface SulekhaFailedRequestView {
 
 export interface SulekhaOverview {
   canManage: boolean;
-  /** The company created its Sulekha URL (it then shows in the Source filter, even if replaced later). */
+  /** The company created its Sulekha URL (it then shows in the Source filter, even if replaced or disconnected later). */
   hasIntegration: boolean;
+  /** The owner disconnected Sulekha: every request is refused (404) until a new URL is generated. */
+  disconnected: boolean;
   /**
    * Only for the owner, and only when the Integrations card asks (details): the URL to give Sulekha (null when its
    * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL, the old URL

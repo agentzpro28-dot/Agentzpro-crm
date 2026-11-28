@@ -69,6 +69,7 @@ describe("shared connection checks", () => {
       () => client.setSulekhaPaused(true),
       () => client.setOlxHomePaused(true),
       () => client.disconnectMagicbricks(),
+      () => client.disconnectSulekha(),
     ];
     for (const [index, run] of change.entries()) {
       await Promise.all([client.getConnectionOverview(), client.getGoogleAdsOverview(), client.getCustomWebhookOverview()]);
