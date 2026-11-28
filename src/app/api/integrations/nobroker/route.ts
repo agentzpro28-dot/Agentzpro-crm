@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 // The company's NoBroker integration. GET: whether the URL was created (the /leads Source filter and the dashboard);
 // with ?details=1 the owner also gets the webhook URL, the last lead time, the old URL's 7-day handover and the last 10
 // failed requests (the Integrations card). POST: create the URL, or replace it (owner only). PATCH: pause or resume
-// (below).
+// (below). DELETE: disconnect (below).
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -36,6 +36,17 @@ export async function PATCH(request: Request) {
     assertSameOrigin(request);
     const body = await parseJsonBody(request, pauseSchema);
     return createSuccessResponse(await new NoBrokerIntegrationService().setPaused(body.paused));
+  } catch (error) {
+    return createErrorResponse(error, request);
+  }
+}
+
+// DELETE: disconnect NoBroker (owner only). Every request to the current URL and the old URL then gets 404 and nothing
+// is saved; leads already received stay. A new URL can be generated later with POST.
+export async function DELETE(request: Request) {
+  try {
+    assertSameOrigin(request);
+    return createSuccessResponse(await new NoBrokerIntegrationService().disconnect());
   } catch (error) {
     return createErrorResponse(error, request);
   }

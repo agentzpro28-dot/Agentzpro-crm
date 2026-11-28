@@ -4,7 +4,7 @@ import { nobrokerLeadsStillOnOldUrl, type NoBrokerOverview } from "@/lib/nobroke
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/nobroker/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-24T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: NoBrokerOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
+const WAITING: NoBrokerOverview = { canManage: true, hasIntegration: true, disconnected: false, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 const withPrevious = (lastLeadAt: string | null, previousLastLeadAt: string | null): NoBrokerOverview => ({
   ...WAITING, integration: { ...WAITING.integration!, lastLeadAt, previousUrl: { validUntil: "2026-12-01T12:00:00Z", lastLeadAt: previousLastLeadAt } },
 });
@@ -13,6 +13,7 @@ vi.mock("@/services/crm-api-client", () => ({
   getNoBrokerOverview: vi.fn(),
   createNoBrokerIntegration: vi.fn(),
   setNoBrokerPaused: vi.fn(),
+  disconnectNoBroker: vi.fn(),
 }));
 
 const { NoBrokerIntegrationCard, nobrokerRelativeTime } = await import("@/features/connection/nobroker-integration-card");
@@ -23,6 +24,7 @@ beforeEach(() => {
   vi.mocked(api.getNoBrokerOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createNoBrokerIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
   vi.mocked(api.setNoBrokerPaused).mockReset().mockImplementation(async (paused) => ({ paused }));
+  vi.mocked(api.disconnectNoBroker).mockReset().mockResolvedValue({ disconnected: true });
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -30,7 +32,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("NoBrokerIntegrationCard", () => {
   it("offers Generate when the company has no URL yet, then shows it", async () => {
-    vi.mocked(api.getNoBrokerOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, integration: null });
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, disconnected: false, integration: null });
     render(<NoBrokerIntegrationCard />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "NoBroker" })).toBeInTheDocument();
@@ -134,7 +136,7 @@ describe("NoBrokerIntegrationCard", () => {
   });
 
   it("tells an employee that only the owner can set it up, with no URL", async () => {
-    vi.mocked(api.getNoBrokerOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<NoBrokerIntegrationCard />);
     expect(await screen.findByText("Only the company owner can set up NoBroker.")).toBeInTheDocument();
     expect(screen.getByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
@@ -235,12 +237,90 @@ describe("NoBrokerIntegrationCard Pause / Resume", () => {
   });
 
   it("gives an employee no Pause, no Resume and no Paused label", async () => {
-    vi.mocked(api.getNoBrokerOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<NoBrokerIntegrationCard />);
     expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
     expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+});
+
+const DISCONNECTED: NoBrokerOverview = { canManage: true, hasIntegration: true, disconnected: true, integration: null };
+
+describe("NoBrokerIntegrationCard Disconnect", () => {
+  it("puts Disconnect in the same row as Regenerate URL and Pause, in one fixed red", async () => {
+    render(<NoBrokerIntegrationCard />);
+    const disconnect = await screen.findByRole("button", { name: "Disconnect" });
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Pause" }).parentElement);
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Regenerate URL" }).parentElement);
+    expect(disconnect.className).toMatch(/^button \S*disconnectButton\S*$/);
+  });
+
+  it("disconnects on one click with no pop-up, then shows Disconnected and Generate new webhook URL", async () => {
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(DISCONNECTED);
+    render(<NoBrokerIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.disconnectNoBroker).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Lead delivery stopped")).toBeInTheDocument();
+    expect(screen.getByText("To receive NoBroker leads again, generate a new URL and send it to your NoBroker account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" })).toBeEnabled();
+    // One fixed blue in light and dark mode, from this card's own CSS (the theme blue is too faint in dark mode).
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" }).className).toMatch(/^button \S*generateNewButton\S*$/);
+    expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
+    for (const name of ["Disconnect", "Pause", "Resume", "Regenerate URL", "Refresh"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(screen.getByText("Generate the webhook URL first.")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(api.setNoBrokerPaused).not.toHaveBeenCalled();
+    expect(api.createNoBrokerIntegration).not.toHaveBeenCalled();
+  });
+
+  it("disconnects a paused URL too", async () => {
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(DISCONNECTED);
+    render(<NoBrokerIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lead delivery paused")).not.toBeInTheDocument();
+    expect(api.disconnectNoBroker).toHaveBeenCalledTimes(1);
+  });
+
+  it("Generate new webhook URL connects again with a new URL", async () => {
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValueOnce(DISCONNECTED).mockResolvedValue(WAITING);
+    render(<NoBrokerIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Generate new webhook URL" }));
+    await waitFor(() => expect(api.createNoBrokerIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your NoBroker account manager.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+    expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
+  });
+
+  it("shows why a disconnect failed and keeps the URL and Disconnect", async () => {
+    vi.mocked(api.disconnectNoBroker).mockRejectedValue(new Error("NoBroker could not be disconnected. Try again."));
+    render(<NoBrokerIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("NoBroker could not be disconnected. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeEnabled();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+  });
+
+  it("tells an employee NoBroker is disconnected, with no buttons", async () => {
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValue({ ...DISCONNECTED, canManage: false });
+    render(<NoBrokerIntegrationCard />);
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Only the company owner can set up NoBroker.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generate new webhook URL" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+  });
+
+  it("gives an employee no Disconnect while NoBroker is set up", async () => {
+    vi.mocked(api.getNoBrokerOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
+    render(<NoBrokerIntegrationCard />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
   });
 });
 
