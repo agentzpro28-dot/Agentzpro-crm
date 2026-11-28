@@ -71,6 +71,7 @@ describe("shared connection checks", () => {
       () => client.setOlxHomePaused(true),
       () => client.disconnectMagicbricks(),
       () => client.disconnectSulekha(),
+      () => client.disconnectOlxHome(),
     ];
     for (const [index, run] of change.entries()) {
       await Promise.all([client.getConnectionOverview(), client.getGoogleAdsOverview(), client.getCustomWebhookOverview()]);

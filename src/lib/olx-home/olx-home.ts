@@ -26,8 +26,10 @@ export interface OlxHomeFailedRequestView {
 
 export interface OlxHomeOverview {
   canManage: boolean;
-  /** The company created its OLX Home URL (it then shows in the Source filter, even if replaced later). */
+  /** The company created its OLX Home URL (it then shows in the Source filter, even if replaced or disconnected later). */
   hasIntegration: boolean;
+  /** The owner disconnected OLX Home: every request is refused (404) until a new URL is generated. */
+  disconnected: boolean;
   /**
    * Only for the owner, and only when the Integrations card asks (details): the URL to give OLX Home (null when its
    * stored copy cannot be read; the card then offers Regenerate), when the last lead arrived on this URL, the old URL

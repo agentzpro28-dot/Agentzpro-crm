@@ -4,7 +4,7 @@ import { olxHomeLeadsStillOnOldUrl, type OlxHomeOverview } from "@/lib/olx-home/
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/olx-home/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-24T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: OlxHomeOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
+const WAITING: OlxHomeOverview = { canManage: true, hasIntegration: true, disconnected: false, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 const withPrevious = (lastLeadAt: string | null, previousLastLeadAt: string | null): OlxHomeOverview => ({
   ...WAITING, integration: { ...WAITING.integration!, lastLeadAt, previousUrl: { validUntil: "2026-12-01T12:00:00Z", lastLeadAt: previousLastLeadAt } },
 });
@@ -13,6 +13,7 @@ vi.mock("@/services/crm-api-client", () => ({
   getOlxHomeOverview: vi.fn(),
   createOlxHomeIntegration: vi.fn(),
   setOlxHomePaused: vi.fn(),
+  disconnectOlxHome: vi.fn(),
 }));
 
 const { OlxHomeIntegrationCard, olxHomeRelativeTime } = await import("@/features/connection/olx-home-integration-card");
@@ -23,6 +24,7 @@ beforeEach(() => {
   vi.mocked(api.getOlxHomeOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createOlxHomeIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
   vi.mocked(api.setOlxHomePaused).mockReset().mockImplementation(async (paused) => ({ paused }));
+  vi.mocked(api.disconnectOlxHome).mockReset().mockResolvedValue({ disconnected: true });
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -30,7 +32,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("OlxHomeIntegrationCard", () => {
   it("offers Generate when the company has no URL yet, then shows it", async () => {
-    vi.mocked(api.getOlxHomeOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, integration: null });
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, disconnected: false, integration: null });
     render(<OlxHomeIntegrationCard />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "OLX Home" })).toBeInTheDocument();
@@ -134,7 +136,7 @@ describe("OlxHomeIntegrationCard", () => {
   });
 
   it("tells an employee that only the owner can set it up, with no URL", async () => {
-    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<OlxHomeIntegrationCard />);
     expect(await screen.findByText("Only the company owner can set up OLX Home.")).toBeInTheDocument();
     expect(screen.getByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
@@ -235,12 +237,88 @@ describe("OlxHomeIntegrationCard Pause / Resume", () => {
   });
 
   it("gives an employee no Pause, no Resume and no Paused label", async () => {
-    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<OlxHomeIntegrationCard />);
     expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
     expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+});
+
+const DISCONNECTED: OlxHomeOverview = { canManage: true, hasIntegration: true, disconnected: true, integration: null };
+
+describe("OlxHomeIntegrationCard Disconnect", () => {
+  it("puts Disconnect in the same row as Regenerate URL and Pause, in one fixed red", async () => {
+    render(<OlxHomeIntegrationCard />);
+    const disconnect = await screen.findByRole("button", { name: "Disconnect" });
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Pause" }).parentElement);
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Regenerate URL" }).parentElement);
+    expect(disconnect.className).toMatch(/^button \S*disconnectButton\S*$/);
+  });
+
+  it("disconnects on one click with no pop-up, then shows Disconnected and Generate new webhook URL", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(DISCONNECTED);
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.disconnectOlxHome).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Lead delivery stopped")).toBeInTheDocument();
+    expect(screen.getByText("To receive OLX Home leads again, generate a new URL and send it to your OLX Home account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" })).toBeEnabled();
+    // One fixed blue in light and dark mode, from this card's own CSS (the theme blue is too faint in dark mode).
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" }).className).toMatch(/^button \S*generateNewButton\S*$/);
+    expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
+    for (const name of ["Disconnect", "Pause", "Resume", "Regenerate URL", "Refresh"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(screen.getByText("Generate the webhook URL first.")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(api.setOlxHomePaused).not.toHaveBeenCalled();
+    expect(api.createOlxHomeIntegration).not.toHaveBeenCalled();
+  });
+
+  it("disconnects a paused URL too", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(DISCONNECTED);
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+
+  it("Generate new webhook URL connects again with a new URL", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValueOnce(DISCONNECTED).mockResolvedValue(WAITING);
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Generate new webhook URL" }));
+    await waitFor(() => expect(api.createOlxHomeIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your OLX Home account manager.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+    expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
+  });
+
+  it("shows why a disconnect failed and keeps the URL and Disconnect", async () => {
+    vi.mocked(api.disconnectOlxHome).mockRejectedValue(new Error("OLX Home could not be disconnected. Try again."));
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("OLX Home could not be disconnected. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeEnabled();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+  });
+
+  it("tells an employee OLX Home is disconnected, with no buttons", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ ...DISCONNECTED, canManage: false });
+    render(<OlxHomeIntegrationCard />);
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Only the company owner can set up OLX Home.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generate new webhook URL" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+  });
+
+  it("gives an employee no Disconnect while OLX Home is set up", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
+    render(<OlxHomeIntegrationCard />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
   });
 });
 
