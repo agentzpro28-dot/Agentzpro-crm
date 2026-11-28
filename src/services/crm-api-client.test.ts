@@ -62,6 +62,7 @@ describe("shared connection checks", () => {
       () => client.stopCustomWebhook(),
       () => client.setCustomWebhookPaused(true),
       () => client.setPortalIntegrationPaused("99acres", true),
+      () => client.setMagicbricksPaused(true),
     ];
     for (const [index, run] of change.entries()) {
       await Promise.all([client.getConnectionOverview(), client.getGoogleAdsOverview(), client.getCustomWebhookOverview()]);

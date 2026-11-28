@@ -1,20 +1,22 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getOverview: vi.fn(), createOrReplace: vi.fn(), sameOrigin: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getOverview: vi.fn(), createOrReplace: vi.fn(), setPaused: vi.fn(), sameOrigin: vi.fn() }));
 vi.mock("@/lib/server/magicbricks/magicbricks-integration-service", () => ({
-  MagicbricksIntegrationService: class { public getOverview = mocks.getOverview; public createOrReplace = mocks.createOrReplace; },
+  MagicbricksIntegrationService: class { public getOverview = mocks.getOverview; public createOrReplace = mocks.createOrReplace; public setPaused = mocks.setPaused; },
 }));
 vi.mock("@/lib/server/auth/same-origin", () => ({ assertSameOrigin: mocks.sameOrigin }));
 
 import { AppError } from "@/lib/server/app-error";
-import { GET, POST } from "@/app/api/integrations/magicbricks/route";
+import { GET, PATCH, POST } from "@/app/api/integrations/magicbricks/route";
 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(console, "error").mockImplementation(() => undefined);
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
 });
+
+const patch = (body: string) => new Request("https://crm.example.com/api/integrations/magicbricks", { method: "PATCH", headers: { "content-type": "application/json" }, body });
 
 describe("/api/integrations/magicbricks", () => {
   it("GET returns the status only, without details", async () => {
@@ -43,5 +45,31 @@ describe("/api/integrations/magicbricks", () => {
     mocks.createOrReplace.mockRejectedValue(new AppError("Only the company owner can manage MagicBricks.", { status: 403, code: "MAGICBRICKS_OWNER_REQUIRED" }));
     const response = await POST(new Request("https://crm.example.com/api/integrations/magicbricks", { method: "POST", body: "{}" }));
     expect(response.status).toBe(403);
+  });
+
+  it("PATCH checks the origin, then pauses or resumes", async () => {
+    mocks.setPaused.mockImplementation(async (paused: boolean) => ({ paused }));
+    const request = patch(JSON.stringify({ paused: true }));
+    const paused = await PATCH(request);
+    expect(paused.status).toBe(200);
+    await expect(paused.json()).resolves.toEqual({ paused: true });
+    expect(mocks.sameOrigin).toHaveBeenCalledWith(request);
+    expect(mocks.setPaused).toHaveBeenLastCalledWith(true);
+    const resumed = await PATCH(patch(JSON.stringify({ paused: false })));
+    await expect(resumed.json()).resolves.toEqual({ paused: false });
+    expect(mocks.setPaused).toHaveBeenLastCalledWith(false);
+  });
+
+  it("PATCH refuses a body that is not exactly {\"paused\": true | false}", async () => {
+    for (const body of ["{}", "not json", JSON.stringify({ paused: "yes" }), JSON.stringify({ paused: true, tenant_id: "tenant-b" })]) {
+      expect((await PATCH(patch(body))).status).toBe(400);
+    }
+    expect(mocks.setPaused).not.toHaveBeenCalled();
+  });
+
+  it("PATCH refuses a cross-site request before pausing anything", async () => {
+    mocks.sameOrigin.mockImplementation(() => { throw new AppError("Cross-origin requests are not permitted on this endpoint.", { status: 403, code: "CROSS_ORIGIN_REQUEST" }); });
+    expect((await PATCH(patch(JSON.stringify({ paused: true })))).status).toBe(403);
+    expect(mocks.setPaused).not.toHaveBeenCalled();
   });
 });
