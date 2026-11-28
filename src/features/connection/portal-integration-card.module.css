@@ -41,6 +41,10 @@
 .actionRow .regenerateButton { background: #1f6feb; color: #fff; }
 .actionRow .regenerateButton:hover:not(:disabled) { background: #174ea6; }
 
+/* Generate new webhook URL (after a Disconnect): the same fixed blue, for the same reason. */
+.actionRow .generateNewButton { background: #1f6feb; color: #fff; }
+.actionRow .generateNewButton:hover:not(:disabled) { background: #174ea6; }
+
 /* Disconnect keeps one fixed red in light and dark mode (white text stays readable on both). */
 .actionRow .disconnectButton { background: #c62828; color: #fff; }
 .actionRow .disconnectButton:hover:not(:disabled) { background: #a11d1d; }

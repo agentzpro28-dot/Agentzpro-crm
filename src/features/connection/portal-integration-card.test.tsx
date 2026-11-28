@@ -277,6 +277,8 @@ describe("PortalIntegrationCard (99acres) Disconnect", () => {
     expect(screen.getByText("Lead delivery stopped")).toBeInTheDocument();
     expect(screen.getByText("To receive 99acres leads again, generate a new URL and send it to your 99acres account manager.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Generate new webhook URL" })).toBeEnabled();
+    // One fixed blue in light and dark mode, from this card's own CSS (the theme blue is too faint in dark mode).
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" }).className).toMatch(/^button \S*generateNewButton\S*$/);
     expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
     for (const name of ["Disconnect", "Pause", "Resume", "Regenerate URL", "Refresh"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     expect(screen.getByText("Generate the webhook URL first.")).toBeInTheDocument();
