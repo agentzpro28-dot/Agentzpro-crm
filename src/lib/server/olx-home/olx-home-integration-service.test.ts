@@ -18,12 +18,12 @@ const TOKEN = "T".repeat(43);
 /** A query chain: every builder call returns the chain; maybeSingle() and await resolve to `result`. */
 function chain(result: { data?: unknown; error: unknown }) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const method of ["select", "eq", "lt", "order", "limit"]) query[method] = vi.fn(() => query);
+  for (const method of ["select", "update", "eq", "lt", "order", "limit"]) query[method] = vi.fn(() => query);
   query.maybeSingle = vi.fn(() => Promise.resolve(result));
   return Object.assign(query, { then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve) });
 }
 
-const row = (extra: Record<string, unknown> = {}) => ({ id: "hs-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, previous_valid_until: null, previous_last_received_at: null, ...extra });
+const row = (extra: Record<string, unknown> = {}) => ({ id: "hs-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, previous_valid_until: null, previous_last_received_at: null, paused_at: null, ...extra });
 
 function overviewTables(integration: unknown, failedResult: { data?: unknown; error: unknown } = { data: [], error: null }, stuckResult: { data?: unknown; error: unknown } = { data: [], error: null }) {
   const integrationRead = chain({ data: integration, error: null });
@@ -73,6 +73,7 @@ describe("OlxHomeIntegrationService.getOverview", () => {
       url: `${ORIGIN}/api/webhooks/olx-home/${TOKEN}`,
       lastLeadAt: "2026-11-20T11:00:00Z",
       previousUrl: null,
+      paused: false,
       failedRequests: [
         { id: "log-2", createdAt: "2026-11-20T10:00:00Z", reason: "Mobile number or email not found" },
         { id: "log-1", createdAt: "2026-11-20T09:00:00Z", reason: "Not saved" },
@@ -132,6 +133,52 @@ describe("OlxHomeIntegrationService.createOrReplace", () => {
     mocks.access.mockResolvedValue(OWNER);
     mocks.rpc.mockResolvedValue({ data: null, error: { message: "down" } });
     await expect(new OlxHomeIntegrationService().createOrReplace(ORIGIN)).rejects.toMatchObject({ status: 500, code: "OLX_HOME_SAVE_FAILED" });
+  });
+});
+
+describe("OlxHomeIntegrationService pause", () => {
+  it("reads paused_at and tells the owner's card whether OLX Home is paused", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const { integrationRead } = overviewTables(row({ paused_at: "2026-11-27T10:00:00Z" }));
+    const overview = await new OlxHomeIntegrationService().getOverview(ORIGIN, { details: true });
+    expect(overview.integration?.paused).toBe(true);
+    expect(integrationRead.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,previous_valid_until,previous_last_received_at,paused_at");
+  });
+
+  it("pauses and resumes only this company's active OLX Home URL", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-27T10:00:00Z") });
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "hs-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    const service = new OlxHomeIntegrationService();
+    await expect(service.setPaused(true)).resolves.toEqual({ paused: true });
+    expect(mocks.from).toHaveBeenCalledWith("olx_home_integrations");
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: "2026-11-27T10:00:00.000Z" });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("is_active", true);
+    expect(query.select).toHaveBeenCalledWith("id");
+    await expect(service.setPaused(false)).resolves.toEqual({ paused: false });
+    expect(query.update).toHaveBeenLastCalledWith({ paused_at: null });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new OlxHomeIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 403, code: "OLX_HOME_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when there is none", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new OlxHomeIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 404, code: "OLX_HOME_INTEGRATION_NOT_FOUND", message: "Generate the webhook URL first." });
+  });
+
+  it("fails with 500 when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new OlxHomeIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 500, code: "OLX_HOME_PAUSE_FAILED", message: "OLX Home leads could not be paused. Try again." });
+    await expect(new OlxHomeIntegrationService().setPaused(false)).rejects.toMatchObject({ status: 500, code: "OLX_HOME_PAUSE_FAILED", message: "OLX Home leads could not be resumed. Try again." });
   });
 });
 
