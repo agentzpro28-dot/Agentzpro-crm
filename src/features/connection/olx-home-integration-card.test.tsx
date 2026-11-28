@@ -4,7 +4,7 @@ import { olxHomeLeadsStillOnOldUrl, type OlxHomeOverview } from "@/lib/olx-home/
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/olx-home/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-24T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: OlxHomeOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [] } };
+const WAITING: OlxHomeOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 const withPrevious = (lastLeadAt: string | null, previousLastLeadAt: string | null): OlxHomeOverview => ({
   ...WAITING, integration: { ...WAITING.integration!, lastLeadAt, previousUrl: { validUntil: "2026-12-01T12:00:00Z", lastLeadAt: previousLastLeadAt } },
 });
@@ -12,6 +12,7 @@ const withPrevious = (lastLeadAt: string | null, previousLastLeadAt: string | nu
 vi.mock("@/services/crm-api-client", () => ({
   getOlxHomeOverview: vi.fn(),
   createOlxHomeIntegration: vi.fn(),
+  setOlxHomePaused: vi.fn(),
 }));
 
 const { OlxHomeIntegrationCard, olxHomeRelativeTime } = await import("@/features/connection/olx-home-integration-card");
@@ -21,6 +22,7 @@ let writeText: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.mocked(api.getOlxHomeOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createOlxHomeIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
+  vi.mocked(api.setOlxHomePaused).mockReset().mockImplementation(async (paused) => ({ paused }));
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -143,6 +145,101 @@ describe("OlxHomeIntegrationCard", () => {
     vi.mocked(api.getOlxHomeOverview).mockRejectedValue(new Error("OLX Home details could not be loaded."));
     render(<OlxHomeIntegrationCard />);
     expect(await screen.findByText("OLX Home details could not be loaded.")).toBeInTheDocument();
+  });
+});
+
+const CONNECTED_AT = "2026-11-24T09:00:00Z";
+const CONNECTED: OlxHomeOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT } };
+const PAUSED: OlxHomeOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT, paused: true } };
+
+describe("OlxHomeIntegrationCard Pause / Resume", () => {
+  it("puts Regenerate URL and Pause side by side in one row", async () => {
+    render(<OlxHomeIntegrationCard />);
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    const regenerate = screen.getByRole("button", { name: "Regenerate URL" });
+    expect(pause.parentElement).toBe(regenerate.parentElement);
+    expect(regenerate.className).toBe("button");
+  });
+
+  it("asks first: Cancel (focused, at the top) and Esc change nothing", async () => {
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Pause OLX Home leads?" });
+    expect(dialog).toHaveTextContent("While paused, every lead OLX Home sends is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving OLX Home leads in your CRM again.");
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(api.setOlxHomePaused).not.toHaveBeenCalled();
+  });
+
+  it("OK pauses: the badge says Paused, the button turns to Resume and Connected is no longer shown", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(PAUSED);
+    render(<OlxHomeIntegrationCard />);
+    expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(api.setOlxHomePaused).toHaveBeenCalledWith(true));
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(screen.getByText("Paused", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last lead received/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/The status turns Connected/)).not.toBeInTheDocument();
+    expect(screen.getByText("Lead delivery paused")).toBeInTheDocument();
+    expect(screen.getByText("Last lead")).toBeInTheDocument();
+    expect(screen.getByText("Click Resume to start receiving OLX Home leads again.")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("Resume needs no pop-up and brings Pause back", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(CONNECTED);
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.setOlxHomePaused).toHaveBeenCalledWith(false));
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+  });
+
+  it("stays paused after a Regenerate (Resume is still shown)", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValue(PAUSED);
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Regenerate URL" }));
+    const buttons = screen.getAllByRole("button", { name: "Regenerate URL" });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(api.createOlxHomeIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your OLX Home account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(api.setOlxHomePaused).not.toHaveBeenCalled();
+  });
+
+  it("while paused, never says leads still arrive on the old URL", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ ...PAUSED, integration: { ...PAUSED.integration!, lastLeadAt: null, previousUrl: { validUntil: "2026-12-01T12:00:00Z", lastLeadAt: "2026-11-24T11:00:00Z" } } });
+    render(<OlxHomeIntegrationCard />);
+    expect(await screen.findByText(/^Your old URL is paused too\. It stops for good on .+\.$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
+    expect(screen.getByText("None yet")).toBeInTheDocument();
+  });
+
+  it("shows why a pause failed and keeps Pause", async () => {
+    vi.mocked(api.setOlxHomePaused).mockRejectedValue(new Error("OLX Home leads could not be paused. Try again."));
+    render(<OlxHomeIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    expect(await screen.findByText("OLX Home leads could not be paused. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  });
+
+  it("gives an employee no Pause, no Resume and no Paused label", async () => {
+    vi.mocked(api.getOlxHomeOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    render(<OlxHomeIntegrationCard />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });
 

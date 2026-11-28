@@ -171,6 +171,8 @@ export async function getOlxHomeStatus(): Promise<OlxHomeOverview> { return shar
 /** The Integrations card's OLX Home view: always read fresh, with the owner's URL, the old URL's handover and the last 10 failed requests. */
 export async function getOlxHomeOverview(): Promise<OlxHomeOverview> { return request<OlxHomeOverview>("/api/integrations/olx-home?details=1"); }
 export async function createOlxHomeIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/olx-home", { method: "POST", body: "{}" }); }
+/** Pauses OLX Home leads (every request is refused until Resume) or resumes them. Owner only. */
+export async function setOlxHomePaused(paused: boolean): Promise<{ paused: boolean }> { return changeConnection("/api/integrations/olx-home", { method: "PATCH", body: JSON.stringify({ paused }) }); }
 
 /** Which real-estate portals (99acres, ...) this company has set up; shared like the checks above. Never carries a URL. */
 export async function getPortalIntegrationStatuses(): Promise<{ portals: PortalIntegrationStatus[] }> { return sharedConnectionCheck<{ portals: PortalIntegrationStatus[] }>("/api/integrations/portals", false); }

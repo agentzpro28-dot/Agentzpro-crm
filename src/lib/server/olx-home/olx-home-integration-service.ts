@@ -48,6 +48,7 @@ type IntegrationRow = {
   last_received_at: string | null;
   previous_valid_until: string | null;
   previous_last_received_at: string | null;
+  paused_at: string | null;
 };
 type FailedRequestRow = { id: string; created_at: string; error_message: string | null };
 
@@ -62,7 +63,7 @@ export class OlxHomeIntegrationService {
     const canManage = access.membershipRole === "owner";
     const db = getSupabaseAdminClient();
     const { data, error } = await db.from("olx_home_integrations")
-      .select("id,encrypted_url_token,is_active,last_received_at,previous_valid_until,previous_last_received_at")
+      .select("id,encrypted_url_token,is_active,last_received_at,previous_valid_until,previous_last_received_at,paused_at")
       .eq("tenant_id", access.tenantId)
       .maybeSingle();
     if (error) throw loadFailed();
@@ -92,6 +93,7 @@ export class OlxHomeIntegrationService {
         // save_olx_home_url clears it on a regenerate, so it is always a lead on the current URL.
         lastLeadAt: row.last_received_at,
         previousUrl,
+        paused: Boolean(row.paused_at),
         failedRequests: newestFailedRequests((stuck.data ?? []) as FailedRequestRow[], (failed.data ?? []) as FailedRequestRow[]).map(toFailedRequestView),
       },
     };
@@ -114,6 +116,27 @@ export class OlxHomeIntegrationService {
     });
     if (error) throw new AppError("The webhook URL could not be saved. Try again.", { status: 500, code: "OLX_HOME_SAVE_FAILED" });
     return { url: buildOlxHomeWebhookUrl(origin, token) };
+  }
+
+  /**
+   * Pauses OLX Home leads, or resumes them (owner only). While paused, find_olx_home_integration finds nothing, so every
+   * request to the current URL and to the old URL gets 404 and nothing is saved. A Regenerate keeps the pause.
+   */
+  public async setPaused(paused: boolean): Promise<{ paused: boolean }> {
+    const access = await requireCrmAccess();
+    if (access.membershipRole !== "owner") {
+      throw new AppError(`Only the company owner can manage ${OLX_HOME_LABEL}.`, { status: 403, code: "OLX_HOME_OWNER_REQUIRED" });
+    }
+    const { data, error } = await getSupabaseAdminClient().from("olx_home_integrations")
+      .update({ paused_at: paused ? new Date().toISOString() : null })
+      .eq("tenant_id", access.tenantId)
+      .eq("is_active", true)
+      .select("id");
+    if (error) {
+      throw new AppError(paused ? `${OLX_HOME_LABEL} leads could not be paused. Try again.` : `${OLX_HOME_LABEL} leads could not be resumed. Try again.`, { status: 500, code: "OLX_HOME_PAUSE_FAILED" });
+    }
+    if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "OLX_HOME_INTEGRATION_NOT_FOUND" });
+    return { paused };
   }
 }
 
