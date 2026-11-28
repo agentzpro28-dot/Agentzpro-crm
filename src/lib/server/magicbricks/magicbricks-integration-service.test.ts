@@ -48,7 +48,7 @@ describe("MagicbricksIntegrationService.getOverview", () => {
   it("without details: one read of this company's row, never a URL (the /leads and dashboard check)", async () => {
     mocks.access.mockResolvedValue(OWNER);
     const { integrationRead } = overviewTables(row());
-    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN)).resolves.toEqual({ canManage: true, hasIntegration: true, integration: null });
+    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN)).resolves.toEqual({ canManage: true, hasIntegration: true, disconnected: false, integration: null });
     expect(integrationRead.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
     expect(mocks.from).toHaveBeenCalledTimes(1);
   });
@@ -56,7 +56,7 @@ describe("MagicbricksIntegrationService.getOverview", () => {
   it("says Not set up when the company has no MagicBricks URL", async () => {
     mocks.access.mockResolvedValue(OWNER);
     overviewTables(null);
-    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: true, hasIntegration: false, integration: null });
+    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: true, hasIntegration: false, disconnected: false, integration: null });
   });
 
   it("gives the owner the URL, the last lead time and the failed requests with short labels", async () => {
@@ -68,7 +68,7 @@ describe("MagicbricksIntegrationService.getOverview", () => {
       { data: [{ id: "log-4", created_at: "2026-11-18T11:30:00Z", error_message: null }], error: null },
     );
     await expect(new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({
-      canManage: true, hasIntegration: true,
+      canManage: true, hasIntegration: true, disconnected: false,
       integration: {
         url: `${ORIGIN}/api/webhooks/magicbricks/${TOKEN}`,
         lastLeadAt: "2026-11-18T11:00:00Z",
@@ -104,7 +104,7 @@ describe("MagicbricksIntegrationService.getOverview", () => {
   it("never gives an employee the URL or the failed requests", async () => {
     mocks.access.mockResolvedValue(EMPLOYEE);
     overviewTables(row());
-    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: false, hasIntegration: true, integration: null });
+    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     expect(mocks.from).toHaveBeenCalledTimes(1);
   });
 
@@ -206,6 +206,59 @@ describe("MagicbricksIntegrationService pause", () => {
     mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
     await expect(new MagicbricksIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 500, code: "MAGICBRICKS_PAUSE_FAILED", message: "MagicBricks leads could not be paused. Try again." });
     await expect(new MagicbricksIntegrationService().setPaused(false)).rejects.toMatchObject({ status: 500, code: "MAGICBRICKS_PAUSE_FAILED", message: "MagicBricks leads could not be resumed. Try again." });
+  });
+});
+
+describe("MagicbricksIntegrationService disconnect", () => {
+  it("stops this company's MagicBricks URL and its old URL in one update, and clears the pause", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "mb-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    await expect(new MagicbricksIntegrationService().disconnect()).resolves.toEqual({ disconnected: true });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(mocks.from).toHaveBeenCalledWith("magicbricks_integrations");
+    expect(query.update).toHaveBeenCalledTimes(1);
+    expect(query.update).toHaveBeenCalledWith({ is_active: false, paused_at: null, previous_url_token_hash: null, previous_valid_until: null, previous_last_received_at: null });
+    expect(query.eq).toHaveBeenCalledTimes(1);
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    // Disconnecting twice (two tabs, a double click) is the same update again, never an error.
+    expect(query.eq).not.toHaveBeenCalledWith("is_active", true);
+    expect(query.select).toHaveBeenCalledWith("id");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new MagicbricksIntegrationService().disconnect()).rejects.toMatchObject({ status: 403, code: "MAGICBRICKS_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when there is none, and 500 when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new MagicbricksIntegrationService().disconnect()).rejects.toMatchObject({ status: 404, code: "MAGICBRICKS_INTEGRATION_NOT_FOUND", message: "Generate the webhook URL first." });
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new MagicbricksIntegrationService().disconnect()).rejects.toMatchObject({ status: 500, code: "MAGICBRICKS_DISCONNECT_FAILED", message: "MagicBricks could not be disconnected. Try again." });
+  });
+
+  it("tells the owner and an employee that MagicBricks is disconnected, without the URL or the failed requests", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    overviewTables(row({ is_active: false }));
+    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: true, hasIntegration: true, disconnected: true, integration: null });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    overviewTables(row({ is_active: false }));
+    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: false, hasIntegration: true, disconnected: true, integration: null });
+  });
+
+  it("keeps a disconnected MagicBricks in the Source filter (the status read counts the row, active or not)", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    const { integrationRead } = overviewTables(row({ is_active: false }));
+    await expect(new MagicbricksIntegrationService().getOverview(ORIGIN)).resolves.toMatchObject({ hasIntegration: true });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(integrationRead.eq).toHaveBeenCalledTimes(1);
+    expect(integrationRead.eq).not.toHaveBeenCalledWith("is_active", expect.anything());
   });
 });
 

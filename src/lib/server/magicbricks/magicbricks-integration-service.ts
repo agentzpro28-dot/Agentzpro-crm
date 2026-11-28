@@ -77,7 +77,7 @@ export class MagicbricksIntegrationService {
       .maybeSingle();
     if (error) throw new AppError("MagicBricks details could not be loaded.", { status: 500, code: "MAGICBRICKS_OVERVIEW_FAILED" });
     const row = data as IntegrationRow | null;
-    const overview: MagicbricksOverview = { canManage, hasIntegration: Boolean(row), integration: null };
+    const overview: MagicbricksOverview = { canManage, hasIntegration: Boolean(row), disconnected: Boolean(row && !row.is_active), integration: null };
     if (!canManage || !options.details || !row || !row.is_active) return overview;
 
     // Two reads at the same time: the requests marked failed, and the ones whose save stopped part-way (still "received").
@@ -147,6 +147,27 @@ export class MagicbricksIntegrationService {
     }
     if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "MAGICBRICKS_INTEGRATION_NOT_FOUND" });
     return { paused };
+  }
+
+  /**
+   * Disconnects MagicBricks (owner only). One UPDATE: is_active = false, and the pause and the old URL are cleared, so
+   * every request to the current URL and to the old URL gets 404 at once and nothing is saved
+   * (find_magicbricks_integration and ingest_magicbricks_lead_on_url both require is_active). The row stays, so leads
+   * already received keep their link and MagicBricks stays in the /leads Source filter. Generating a URL again makes a
+   * brand-new one with no old URL (save_magicbricks_url). Disconnecting twice changes nothing more.
+   */
+  public async disconnect(): Promise<{ disconnected: true }> {
+    const access = await requireCrmAccess();
+    if (access.membershipRole !== "owner") {
+      throw new AppError(`Only the company owner can manage ${MAGICBRICKS_LABEL}.`, { status: 403, code: "MAGICBRICKS_OWNER_REQUIRED" });
+    }
+    const { data, error } = await getSupabaseAdminClient().from("magicbricks_integrations")
+      .update({ is_active: false, paused_at: null, previous_url_token_hash: null, previous_valid_until: null, previous_last_received_at: null })
+      .eq("tenant_id", access.tenantId)
+      .select("id");
+    if (error) throw new AppError(`${MAGICBRICKS_LABEL} could not be disconnected. Try again.`, { status: 500, code: "MAGICBRICKS_DISCONNECT_FAILED" });
+    if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "MAGICBRICKS_INTEGRATION_NOT_FOUND" });
+    return { disconnected: true };
   }
 }
 

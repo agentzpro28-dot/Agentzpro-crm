@@ -141,6 +141,8 @@ export async function getMagicbricksOverview(): Promise<MagicbricksOverview> { r
 export async function createMagicbricksIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/magicbricks", { method: "POST", body: "{}" }); }
 /** Pauses MagicBricks leads (every request is refused until Resume) or resumes them. Owner only. */
 export async function setMagicbricksPaused(paused: boolean): Promise<{ paused: boolean }> { return changeConnection("/api/integrations/magicbricks", { method: "PATCH", body: JSON.stringify({ paused }) }); }
+/** Disconnects MagicBricks: its current and old URL are refused at once; a new URL can be generated later. Owner only. */
+export async function disconnectMagicbricks(): Promise<{ disconnected: true }> { return changeConnection("/api/integrations/magicbricks", { method: "DELETE" }); }
 
 /** Whether this company created its Housing.com URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
 export async function getHousingStatus(): Promise<HousingOverview> { return sharedConnectionCheck<HousingOverview>("/api/integrations/housing", false); }

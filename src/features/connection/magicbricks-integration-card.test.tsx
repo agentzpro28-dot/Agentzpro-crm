@@ -4,12 +4,13 @@ import type { MagicbricksOverview } from "@/lib/magicbricks/magicbricks";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/magicbricks/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-18T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: MagicbricksOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
+const WAITING: MagicbricksOverview = { canManage: true, hasIntegration: true, disconnected: false, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getMagicbricksOverview: vi.fn(),
   createMagicbricksIntegration: vi.fn(),
   setMagicbricksPaused: vi.fn(),
+  disconnectMagicbricks: vi.fn(),
 }));
 
 const { MagicbricksIntegrationCard, magicbricksRelativeTime } = await import("@/features/connection/magicbricks-integration-card");
@@ -20,6 +21,7 @@ beforeEach(() => {
   vi.mocked(api.getMagicbricksOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createMagicbricksIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
   vi.mocked(api.setMagicbricksPaused).mockReset().mockImplementation(async (paused) => ({ paused }));
+  vi.mocked(api.disconnectMagicbricks).mockReset().mockResolvedValue({ disconnected: true });
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -27,7 +29,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("MagicbricksIntegrationCard", () => {
   it("offers Generate when the company has no URL yet, then shows it", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, integration: null });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, disconnected: false, integration: null });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "MagicBricks" })).toBeInTheDocument();
@@ -131,7 +133,7 @@ describe("MagicbricksIntegrationCard", () => {
   });
 
   it("shows an employee only that the owner sets it up, never the URL", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("Only the company owner can set up MagicBricks.")).toBeInTheDocument();
     expect(screen.getByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
@@ -232,13 +234,90 @@ describe("MagicbricksIntegrationCard Pause / Resume", () => {
   });
 
   it("gives an employee no Pause, no Resume and no Paused label", async () => {
-    vi.mocked(api.getMagicbricksOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<MagicbricksIntegrationCard />);
     expect(await screen.findByText("Only the company owner can set up MagicBricks.")).toBeInTheDocument();
     expect(screen.getByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
     expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+});
+
+const DISCONNECTED: MagicbricksOverview = { canManage: true, hasIntegration: true, disconnected: true, integration: null };
+
+describe("MagicbricksIntegrationCard Disconnect", () => {
+  it("puts Disconnect in the same row as Regenerate URL and Pause, in one fixed red", async () => {
+    render(<MagicbricksIntegrationCard />);
+    const disconnect = await screen.findByRole("button", { name: "Disconnect" });
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Pause" }).parentElement);
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Regenerate URL" }).parentElement);
+    expect(disconnect.className).toMatch(/^button \S*disconnectButton\S*$/);
+  });
+
+  it("disconnects on one click with no pop-up, then shows Disconnected and Generate new webhook URL", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(DISCONNECTED);
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.disconnectMagicbricks).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Lead delivery stopped")).toBeInTheDocument();
+    expect(screen.getByText("To receive MagicBricks leads again, generate a new URL and send it to your MagicBricks account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" })).toBeEnabled();
+    // One fixed blue in light and dark mode, from this card's own CSS (the theme blue is too faint in dark mode).
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" }).className).toMatch(/^button \S*generateNewButton\S*$/);
+    expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
+    for (const name of ["Disconnect", "Pause", "Resume", "Regenerate URL", "Refresh"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(screen.getByText("Generate the webhook URL first.")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(api.setMagicbricksPaused).not.toHaveBeenCalled();
+    expect(api.createMagicbricksIntegration).not.toHaveBeenCalled();
+  });
+
+  it("disconnects a paused URL too", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(DISCONNECTED);
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lead delivery paused")).not.toBeInTheDocument();
+  });
+
+  it("Generate new webhook URL connects again with a new URL", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValueOnce(DISCONNECTED).mockResolvedValue(WAITING);
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Generate new webhook URL" }));
+    await waitFor(() => expect(api.createMagicbricksIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your MagicBricks account manager.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+    expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
+  });
+
+  it("shows why a disconnect failed and keeps the URL and Disconnect", async () => {
+    vi.mocked(api.disconnectMagicbricks).mockRejectedValue(new Error("MagicBricks could not be disconnected. Try again."));
+    render(<MagicbricksIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("MagicBricks could not be disconnected. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeEnabled();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+  });
+
+  it("tells an employee MagicBricks is disconnected, with no buttons", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValue({ ...DISCONNECTED, canManage: false });
+    render(<MagicbricksIntegrationCard />);
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Only the company owner can set up MagicBricks.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generate new webhook URL" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+  });
+
+  it("gives an employee no Disconnect while MagicBricks is set up", async () => {
+    vi.mocked(api.getMagicbricksOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
+    render(<MagicbricksIntegrationCard />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
   });
 });
 
