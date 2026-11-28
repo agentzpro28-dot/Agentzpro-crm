@@ -48,6 +48,11 @@
 .actionRow .resumeButton { background: #16823a; color: #fff; }
 .actionRow .resumeButton:hover:not(:disabled) { background: #11652d; }
 
+/* Sulekha card only. Regenerate URL keeps one fixed blue in light and dark mode (the theme's --primary turns light blue in dark mode,
+   too faint behind white text). */
+.actionRow .regenerateButton { background: #1f6feb; color: #fff; }
+.actionRow .regenerateButton:hover:not(:disabled) { background: #174ea6; }
+
 /* Sulekha card only: the "Lead delivery paused" line in step 2. */
 .pausedLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--warning); font-weight: 800; }
 .pausedLine svg { flex: none; }

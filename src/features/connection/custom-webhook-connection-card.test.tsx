@@ -145,6 +145,8 @@ describe("CustomWebhookConnectionCard", () => {
     const row = pause.parentElement as HTMLElement;
     expect(row).toContainElement(screen.getByRole("button", { name: "Replace URL" }));
     expect(row).toContainElement(screen.getByRole("button", { name: "Stop receiving webhook leads" }));
+    // One fixed blue in light and dark mode, from this card's own CSS.
+    expect(screen.getByRole("button", { name: "Replace URL" }).className).toMatch(/^button \S*replaceButton\S*$/);
   });
 
   it("keeps Stop available while paused", async () => {

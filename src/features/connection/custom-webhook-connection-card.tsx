@@ -107,7 +107,7 @@ export function CustomWebhookConnectionCard() {
           {confirmReplace ? <>
             <button className="button button--danger" type="button" disabled={busy === "replace"} onClick={() => void run("replace", async () => { await createCustomWebhook(); await reload(); setConfirmReplace(false); setShowUrl(false); setMessage({ tone: "success", text: "New URL created. Paste it into your tools." }); })}>{busy === "replace" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <RefreshCw aria-hidden="true" size={18} />}Replace URL</button>
             <button className="button button--secondary" type="button" onClick={() => setConfirmReplace(false)}><X aria-hidden="true" size={18} />Cancel</button>
-          </> : <button className="button" type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Replace URL</button>}
+          </> : <button className={`button ${styles.replaceButton}`} type="button" onClick={() => setConfirmReplace(true)}><RefreshCw aria-hidden="true" size={18} />Replace URL</button>}
           {paused
             ? <button className={`button ${styles.resumeButton}`} type="button" disabled={busy === "resume"} onClick={() => void run("resume", async () => { await setCustomWebhookPaused(false); await reload(); })}>{busy === "resume" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}Resume</button>
             : <button className={`button ${styles.pauseButton}`} type="button" disabled={busy === "pause"} onClick={() => setConfirmPause(true)}>{busy === "pause" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Pause aria-hidden="true" size={18} />}Pause</button>}

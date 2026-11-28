@@ -75,3 +75,8 @@
 
 .actionRow .resumeButton { background: #16823a; color: #fff; }
 .actionRow .resumeButton:hover:not(:disabled) { background: #11652d; }
+
+/* OLX Home card only. Regenerate URL keeps one fixed blue in light and dark mode (the theme's --primary turns light blue in dark mode,
+   too faint behind white text). */
+.actionRow .regenerateButton { background: #1f6feb; color: #fff; }
+.actionRow .regenerateButton:hover:not(:disabled) { background: #174ea6; }
