@@ -38,6 +38,8 @@ export interface SulekhaOverview {
     url: string | null;
     lastLeadAt: string | null;
     previousUrl: { validUntil: string; lastLeadAt: string | null } | null;
+    /** The owner paused the company's Sulekha leads: every request is refused (404) until Resume. */
+    paused: boolean;
     failedRequests: SulekhaFailedRequestView[];
   } | null;
 }
