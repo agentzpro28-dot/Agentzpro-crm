@@ -233,9 +233,9 @@ describe("status colours", () => {
     expect(screen.getByRole("button", { name: "Change label for Kumar" })).not.toHaveAttribute("data-tone");
     fireEvent.click(screen.getByRole("button", { name: "Change status for Kumar" }));
     for (const option of screen.getAllByRole("option")) expect(option).not.toHaveAttribute("data-tone");
-  }, 10000);
+  });
 
-  // Cycles all 15 statuses in one test, so it gets more headroom than the 5s default.
+  // Cycles all 15 statuses in one test, the slowest test here; it uses the suite's 30 s limit (vitest.config.ts).
   it("uses the same colours in the drawer's status banner as the table, for every status", async () => {
     stubApi({ leads: [lead(LEAD_1, "Kumar")], pages: {}, openTask: null });
     await renderPage();
@@ -248,7 +248,7 @@ describe("status colours", () => {
       expect(banner()).toHaveAttribute("data-tone", c.tone);
     }
     expect(statusButton()).not.toHaveAttribute("data-tone");
-  }, 10000);
+  });
 });
 
 describe("no open task marker in the leads table", () => {
