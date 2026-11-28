@@ -34,7 +34,7 @@
 .logTime { color: var(--text); font-size: .875rem; font-weight: 600; }
 .logError { margin: 0; color: var(--danger); font-size: .875rem; overflow-wrap: anywhere; }
 
-/* MagicBricks card only: the Pause pop-up's Cancel at the top, its icon, and the "paused" line. */
+/* MagicBricks card only: the Pause pop-up's Cancel at the top, its icon, the "paused" and "stopped" lines, and the button row. */
 .pausePopup { position: relative; }
 
 .pauseCancel {
@@ -76,3 +76,14 @@
    too faint behind white text). */
 .actionRow .regenerateButton { background: #1f6feb; color: #fff; }
 .actionRow .regenerateButton:hover:not(:disabled) { background: #174ea6; }
+
+/* Generate new webhook URL (after a Disconnect): the same fixed blue, for the same reason. */
+.actionRow .generateNewButton { background: #1f6feb; color: #fff; }
+.actionRow .generateNewButton:hover:not(:disabled) { background: #174ea6; }
+
+/* Disconnect keeps one fixed red in light and dark mode (white text stays readable on both). */
+.actionRow .disconnectButton { background: #c62828; color: #fff; }
+.actionRow .disconnectButton:hover:not(:disabled) { background: #a11d1d; }
+
+.disconnectedLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--danger); font-weight: 800; }
+.disconnectedLine svg { flex: none; }
