@@ -18,12 +18,12 @@ const TOKEN = "T".repeat(43);
 /** A query chain: every builder call returns the chain; maybeSingle() and await resolve to `result`. */
 function chain(result: { data?: unknown; error: unknown }) {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const method of ["select", "eq", "lt", "order", "limit"]) query[method] = vi.fn(() => query);
+  for (const method of ["select", "eq", "lt", "order", "limit", "update"]) query[method] = vi.fn(() => query);
   query.maybeSingle = vi.fn(() => Promise.resolve(result));
   return Object.assign(query, { then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve) });
 }
 
-const row = (extra: Record<string, unknown> = {}) => ({ id: "sul-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, previous_valid_until: null, previous_last_received_at: null, ...extra });
+const row = (extra: Record<string, unknown> = {}) => ({ id: "sul-1", encrypted_url_token: `enc:${TOKEN}`, is_active: true, last_received_at: null, previous_valid_until: null, previous_last_received_at: null, paused_at: null, ...extra });
 
 function overviewTables(integration: unknown, failedResult: { data?: unknown; error: unknown } = { data: [], error: null }, stuckResult: { data?: unknown; error: unknown } = { data: [], error: null }) {
   const integrationRead = chain({ data: integration, error: null });
@@ -63,7 +63,7 @@ describe("SulekhaIntegrationService.getOverview", () => {
   it("gives the owner the URL, the last lead time and the failed requests (stuck ones too) with short labels", async () => {
     vi.useFakeTimers({ now: new Date("2026-11-24T12:00:00Z") });
     mocks.access.mockResolvedValue(OWNER);
-    overviewTables(
+    const { integrationRead } = overviewTables(
       row({ last_received_at: "2026-11-24T11:00:00Z" }),
       { data: [{ id: "log-2", created_at: "2026-11-24T10:00:00Z", error_message: SULEKHA_PAYLOAD_MESSAGES.noContact }], error: null },
       { data: [{ id: "log-1", created_at: "2026-11-24T09:00:00Z", error_message: null }], error: null },
@@ -73,11 +73,22 @@ describe("SulekhaIntegrationService.getOverview", () => {
       url: `${ORIGIN}/api/webhooks/sulekha/${TOKEN}`,
       lastLeadAt: "2026-11-24T11:00:00Z",
       previousUrl: null,
+      paused: false,
       failedRequests: [
         { id: "log-2", createdAt: "2026-11-24T10:00:00Z", reason: "Mobile number or email not found" },
         { id: "log-1", createdAt: "2026-11-24T09:00:00Z", reason: "Not saved" },
       ],
     });
+    expect(integrationRead.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,previous_valid_until,previous_last_received_at,paused_at");
+  });
+
+  it("tells only the owner's card that Sulekha is paused", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    overviewTables(row({ paused_at: "2026-11-27T10:00:00Z" }));
+    expect((await new SulekhaIntegrationService().getOverview(ORIGIN, { details: true })).integration?.paused).toBe(true);
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    overviewTables(row({ paused_at: "2026-11-27T10:00:00Z" }));
+    await expect(new SulekhaIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: false, hasIntegration: true, integration: null });
   });
 
   it("shows the old URL's handover while it still works, with its own last lead time", async () => {
@@ -132,6 +143,51 @@ describe("SulekhaIntegrationService.createOrReplace", () => {
     mocks.access.mockResolvedValue(OWNER);
     mocks.rpc.mockResolvedValue({ data: null, error: { message: "down" } });
     await expect(new SulekhaIntegrationService().createOrReplace(ORIGIN)).rejects.toMatchObject({ status: 500, code: "SULEKHA_SAVE_FAILED" });
+  });
+});
+
+describe("SulekhaIntegrationService pause", () => {
+  it("pauses only this company's active Sulekha URL", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-27T10:00:00Z") });
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "sul-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    await expect(new SulekhaIntegrationService().setPaused(true)).resolves.toEqual({ paused: true });
+    expect(mocks.from).toHaveBeenCalledWith("sulekha_integrations");
+    expect(query.update).toHaveBeenCalledWith({ paused_at: "2026-11-27T10:00:00.000Z" });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("is_active", true);
+    expect(query.select).toHaveBeenCalledWith("id");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("resumes by clearing paused_at", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "sul-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    await expect(new SulekhaIntegrationService().setPaused(false)).resolves.toEqual({ paused: false });
+    expect(query.update).toHaveBeenCalledWith({ paused_at: null });
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    expect(query.eq).toHaveBeenCalledWith("is_active", true);
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new SulekhaIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 403, code: "SULEKHA_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when the company has none", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new SulekhaIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 404, code: "SULEKHA_INTEGRATION_NOT_FOUND", message: "Generate the webhook URL first." });
+  });
+
+  it("fails cleanly when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new SulekhaIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 500, code: "SULEKHA_PAUSE_FAILED", message: "Sulekha leads could not be paused. Try again." });
+    await expect(new SulekhaIntegrationService().setPaused(false)).rejects.toMatchObject({ status: 500, code: "SULEKHA_PAUSE_FAILED", message: "Sulekha leads could not be resumed. Try again." });
   });
 });
 

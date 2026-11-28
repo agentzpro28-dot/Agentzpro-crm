@@ -4,7 +4,7 @@ import { sulekhaLeadsStillOnOldUrl, type SulekhaOverview } from "@/lib/sulekha/s
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/sulekha/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-24T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: SulekhaOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, failedRequests: [] } };
+const WAITING: SulekhaOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 const withPrevious = (lastLeadAt: string | null, previousLastLeadAt: string | null): SulekhaOverview => ({
   ...WAITING, integration: { ...WAITING.integration!, lastLeadAt, previousUrl: { validUntil: "2026-12-01T12:00:00Z", lastLeadAt: previousLastLeadAt } },
 });
@@ -12,6 +12,7 @@ const withPrevious = (lastLeadAt: string | null, previousLastLeadAt: string | nu
 vi.mock("@/services/crm-api-client", () => ({
   getSulekhaOverview: vi.fn(),
   createSulekhaIntegration: vi.fn(),
+  setSulekhaPaused: vi.fn(),
 }));
 
 const { SulekhaIntegrationCard, sulekhaRelativeTime } = await import("@/features/connection/sulekha-integration-card");
@@ -21,6 +22,7 @@ let writeText: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.mocked(api.getSulekhaOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createSulekhaIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
+  vi.mocked(api.setSulekhaPaused).mockReset().mockImplementation(async (paused) => ({ paused }));
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -143,6 +145,100 @@ describe("SulekhaIntegrationCard", () => {
     vi.mocked(api.getSulekhaOverview).mockRejectedValue(new Error("Sulekha details could not be loaded."));
     render(<SulekhaIntegrationCard />);
     expect(await screen.findByText("Sulekha details could not be loaded.")).toBeInTheDocument();
+  });
+});
+
+const CONNECTED_AT = "2026-11-24T09:00:00Z";
+const CONNECTED: SulekhaOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT } };
+const PAUSED: SulekhaOverview = { ...WAITING, integration: { ...WAITING.integration!, lastLeadAt: CONNECTED_AT, paused: true } };
+
+describe("SulekhaIntegrationCard Pause / Resume", () => {
+  it("puts Regenerate URL and Pause side by side in one row", async () => {
+    render(<SulekhaIntegrationCard />);
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    const regenerate = screen.getByRole("button", { name: "Regenerate URL" });
+    expect(pause.parentElement).toBe(regenerate.parentElement);
+    expect(regenerate.className).toBe("button");
+  });
+
+  it("asks first: Cancel (focused, at the top) and Esc change nothing", async () => {
+    render(<SulekhaIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Pause Sulekha leads?" });
+    expect(dialog).toHaveTextContent("While paused, every lead Sulekha sends is refused and cannot be recovered later. AgentzPro is not responsible for any leads lost during the pause. Click Resume at any time to start receiving Sulekha leads in your CRM again.");
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveFocus();
+    fireEvent.click(cancel);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(api.setSulekhaPaused).not.toHaveBeenCalled();
+  });
+
+  it("OK pauses: the badge says Paused, the button turns to Resume and Connected is no longer shown", async () => {
+    vi.mocked(api.getSulekhaOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(PAUSED);
+    render(<SulekhaIntegrationCard />);
+    expect(await screen.findByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(api.setSulekhaPaused).toHaveBeenCalledWith(true));
+    expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(screen.getByText("Paused", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Last lead received/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/The status turns Connected/)).not.toBeInTheDocument();
+    expect(screen.getByText("Lead delivery paused")).toBeInTheDocument();
+    expect(screen.getByText("Last lead")).toBeInTheDocument();
+    expect(screen.getByText("Click Resume to start receiving Sulekha leads again.")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("Resume needs no pop-up and brings Pause back", async () => {
+    vi.mocked(api.getSulekhaOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(CONNECTED);
+    render(<SulekhaIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Resume" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.setSulekhaPaused).toHaveBeenCalledWith(false));
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByText("Connected", { selector: ".status-badge" })).toBeInTheDocument();
+  });
+
+  it("stays paused after a Regenerate (Resume is still shown)", async () => {
+    vi.mocked(api.getSulekhaOverview).mockResolvedValue(PAUSED);
+    render(<SulekhaIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Regenerate URL" }));
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate URL" }));
+    await waitFor(() => expect(api.createSulekhaIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your Sulekha account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(api.setSulekhaPaused).not.toHaveBeenCalled();
+  });
+
+  it("while paused, never says leads still arrive on the old URL", async () => {
+    vi.mocked(api.getSulekhaOverview).mockResolvedValue({ ...PAUSED, integration: { ...PAUSED.integration!, lastLeadAt: null, previousUrl: { validUntil: "2026-12-01T12:00:00Z", lastLeadAt: "2026-11-24T11:00:00Z" } } });
+    render(<SulekhaIntegrationCard />);
+    expect(await screen.findByText(/^Your old URL is paused too\. It stops for good on .+\.$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Leads are still arriving on your old URL/)).not.toBeInTheDocument();
+    expect(screen.getByText("None yet")).toBeInTheDocument();
+  });
+
+  it("shows why a pause failed and keeps Pause", async () => {
+    vi.mocked(api.setSulekhaPaused).mockRejectedValue(new Error("Sulekha leads could not be paused. Try again."));
+    render(<SulekhaIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "OK" }));
+    expect(await screen.findByText("Sulekha leads could not be paused. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  });
+
+  it("gives an employee no Pause, no Resume and no Paused label", async () => {
+    vi.mocked(api.getSulekhaOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    render(<SulekhaIntegrationCard />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });
 
