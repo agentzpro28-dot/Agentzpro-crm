@@ -64,6 +64,7 @@ describe("shared connection checks", () => {
       () => client.setPortalIntegrationPaused("99acres", true),
       () => client.setMagicbricksPaused(true),
       () => client.setHousingPaused(true),
+      () => client.disconnectHousing(),
       () => client.setNoBrokerPaused(true),
       () => client.setSulekhaPaused(true),
       () => client.setOlxHomePaused(true),

@@ -43,7 +43,7 @@ describe("HousingIntegrationService.getOverview", () => {
   it("without details: one read of this company's row, never a URL (the /leads and dashboard check)", async () => {
     mocks.access.mockResolvedValue(OWNER);
     const { integrationRead } = overviewTables(row());
-    await expect(new HousingIntegrationService().getOverview(ORIGIN)).resolves.toEqual({ canManage: true, hasIntegration: true, integration: null });
+    await expect(new HousingIntegrationService().getOverview(ORIGIN)).resolves.toEqual({ canManage: true, hasIntegration: true, disconnected: false, integration: null });
     expect(integrationRead.select).toHaveBeenCalledWith("id,encrypted_url_token,is_active,last_received_at,previous_valid_until,previous_last_received_at,paused_at");
     expect(integrationRead.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
     expect(mocks.from).toHaveBeenCalledTimes(1);
@@ -52,13 +52,13 @@ describe("HousingIntegrationService.getOverview", () => {
   it("says Not set up when the company has no Housing.com URL", async () => {
     mocks.access.mockResolvedValue(OWNER);
     overviewTables(null);
-    await expect(new HousingIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: true, hasIntegration: false, integration: null });
+    await expect(new HousingIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: true, hasIntegration: false, disconnected: false, integration: null });
   });
 
   it("never gives an employee the URL", async () => {
     mocks.access.mockResolvedValue(EMPLOYEE);
     overviewTables(row());
-    await expect(new HousingIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: false, hasIntegration: true, integration: null });
+    await expect(new HousingIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
   });
 
   it("gives the owner the URL, the last lead time and the failed requests (stuck ones too) with short labels", async () => {
@@ -184,6 +184,56 @@ describe("HousingIntegrationService pause", () => {
     mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
     await expect(new HousingIntegrationService().setPaused(true)).rejects.toMatchObject({ status: 500, code: "HOUSING_PAUSE_FAILED", message: "Housing.com leads could not be paused. Try again." });
     await expect(new HousingIntegrationService().setPaused(false)).rejects.toMatchObject({ status: 500, code: "HOUSING_PAUSE_FAILED", message: "Housing.com leads could not be resumed. Try again." });
+  });
+});
+
+describe("HousingIntegrationService disconnect", () => {
+  it("stops this company's Housing.com URL and its old URL in one update, and clears the pause", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    const query = chain({ data: [{ id: "hs-1" }], error: null });
+    mocks.from.mockReturnValue(query);
+    await expect(new HousingIntegrationService().disconnect()).resolves.toEqual({ disconnected: true });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    expect(mocks.from).toHaveBeenCalledWith("housing_integrations");
+    expect(query.update).toHaveBeenCalledTimes(1);
+    expect(query.update).toHaveBeenCalledWith({ is_active: false, paused_at: null, previous_url_token_hash: null, previous_valid_until: null, previous_last_received_at: null });
+    expect(query.eq).toHaveBeenCalledTimes(1);
+    expect(query.eq).toHaveBeenCalledWith("tenant_id", "tenant-a");
+    // Disconnecting twice (two tabs, a double click) is the same update again, never an error.
+    expect(query.eq).not.toHaveBeenCalledWith("is_active", expect.anything());
+    expect(query.select).toHaveBeenCalledWith("id");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("refuses an employee before touching the database", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    await expect(new HousingIntegrationService().disconnect()).rejects.toMatchObject({ status: 403, code: "HOUSING_OWNER_REQUIRED" });
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("says to generate the URL first when there is none, and 500 when the database fails", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    mocks.from.mockReturnValue(chain({ data: [], error: null }));
+    await expect(new HousingIntegrationService().disconnect()).rejects.toMatchObject({ status: 404, code: "HOUSING_INTEGRATION_NOT_FOUND", message: "Generate the webhook URL first." });
+    mocks.from.mockReturnValue(chain({ data: null, error: { message: "down" } }));
+    await expect(new HousingIntegrationService().disconnect()).rejects.toMatchObject({ status: 500, code: "HOUSING_DISCONNECT_FAILED", message: "Housing.com could not be disconnected. Try again." });
+  });
+
+  it("tells the owner and an employee that Housing.com is disconnected, without the URL or the failed requests", async () => {
+    mocks.access.mockResolvedValue(OWNER);
+    overviewTables(row({ is_active: false }));
+    await expect(new HousingIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: true, hasIntegration: true, disconnected: true, integration: null });
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    overviewTables(row({ is_active: false }));
+    await expect(new HousingIntegrationService().getOverview(ORIGIN, { details: true })).resolves.toEqual({ canManage: false, hasIntegration: true, disconnected: true, integration: null });
+  });
+
+  it("keeps a disconnected Housing.com in the Source filter (the status read counts the row)", async () => {
+    mocks.access.mockResolvedValue(EMPLOYEE);
+    const { integrationRead } = overviewTables(row({ is_active: false }));
+    await expect(new HousingIntegrationService().getOverview(ORIGIN)).resolves.toMatchObject({ hasIntegration: true, disconnected: true });
+    expect(integrationRead.eq).not.toHaveBeenCalledWith("is_active", expect.anything());
   });
 });
 

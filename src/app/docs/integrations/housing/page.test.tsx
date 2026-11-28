@@ -18,8 +18,9 @@ it("describes the 3-step account-manager setup, as its own pipeline", () => {
 
 it("warns clearly not to click Regenerate URL without a real reason: old URL 7 days, then leads are lost", () => {
   render(<HousingDocsPage />);
-  const warning = screen.getByRole("note");
-  expect(within(warning).getByRole("heading", { level: 2, name: /Warning: Do not click "Regenerate URL" without a real reason/ })).toBeInTheDocument();
+  const heading = screen.getByRole("heading", { level: 2, name: /Warning: Do not click "Regenerate URL" without a real reason/ });
+  const warning = heading.closest<HTMLElement>("[role='note']")!;
+  expect(within(warning).getByRole("heading", { level: 2 })).toBe(heading);
   expect(warning).toHaveTextContent("Click Regenerate URL only if your webhook URL has leaked (someone outside your company has it).");
   expect(warning).toHaveTextContent("When you click it, a new webhook URL is created.");
   expect(warning).toHaveTextContent("Your old webhook URL keeps working for only 7 days from the time you create the new URL. After 7 days, the old URL will not accept any leads.");
@@ -59,6 +60,7 @@ it("lists every reply code with its reason, and says a lead is saved only on 200
   expect(row("200")).toHaveTextContent('Lead saved ("success": true, "accepted": 1)');
   expect(row("400")).toHaveTextContent('"Mobile number or email not found."');
   expect(row("400")).toHaveTextContent('"More than one lead in one request."');
+  expect(row("404")).toHaveTextContent("Not saved: wrong, replaced, expired or disconnected URL.");
   expect(row("404")).toHaveTextContent('"Unknown webhook."');
   expect(row("413")).toHaveTextContent('"Payload too large."');
   expect(row("415")).toHaveTextContent('"The body is not JSON, form data or URL parameters."');
@@ -66,4 +68,16 @@ it("lists every reply code with its reason, and says a lead is saved only on 200
   expect(row("500")).toHaveTextContent('"Temporary failure, retry later."');
   expect(section).toHaveTextContent('A lead is saved only when the reply is 200 with "accepted": 1.');
   expect(screen.queryByText(/MagicBricks|Sulekha|99acres/)).not.toBeInTheDocument();
+});
+
+it("explains Disconnect: at once with no confirmation, every lead refused (old URL too), old leads stay, new URL to connect again", () => {
+  render(<HousingDocsPage />);
+  const heading = screen.getByRole("heading", { level: 2, name: /Disconnect Housing\.com/ });
+  const note = heading.closest<HTMLElement>("[role='note']")!;
+  expect(note).toHaveTextContent("Click Disconnect on the Housing.com card to stop receiving Housing.com leads. It works at once, with no confirmation.");
+  expect(note).toHaveTextContent("From then on, every lead Housing.com sends to your webhook URL is refused and cannot be recovered. This includes your old URL during its 7 days after a Regenerate.");
+  expect(note).toHaveTextContent("The Housing.com leads already in your CRM stay as they are, and Housing.com stays in the Source filter on the Leads page.");
+  expect(note).toHaveTextContent("To receive Housing.com leads again, click Generate new webhook URL and send the new URL to your Housing.com account manager. The disconnected URL never works again.");
+  expect(note).toHaveTextContent("Ask your Housing.com account manager to remove the disconnected URL.");
+  expect(screen.getAllByRole("note")).toHaveLength(2);
 });
