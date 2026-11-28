@@ -4,12 +4,13 @@ import type { HousingOverview } from "@/lib/housing/housing";
 
 const URL_VALUE = "https://crm.example.com/api/webhooks/housing/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FAILED = { id: "log-1", createdAt: "2026-11-20T10:00:00Z", reason: "Mobile number or email not found" as const };
-const WAITING: HousingOverview = { canManage: true, hasIntegration: true, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
+const WAITING: HousingOverview = { canManage: true, hasIntegration: true, disconnected: false, integration: { url: URL_VALUE, lastLeadAt: null, previousUrl: null, paused: false, failedRequests: [] } };
 
 vi.mock("@/services/crm-api-client", () => ({
   getHousingOverview: vi.fn(),
   createHousingIntegration: vi.fn(),
   setHousingPaused: vi.fn(),
+  disconnectHousing: vi.fn(),
 }));
 
 const { HousingIntegrationCard, housingRelativeTime } = await import("@/features/connection/housing-integration-card");
@@ -20,6 +21,7 @@ beforeEach(() => {
   vi.mocked(api.getHousingOverview).mockReset().mockResolvedValue(WAITING);
   vi.mocked(api.createHousingIntegration).mockReset().mockResolvedValue({ url: URL_VALUE });
   vi.mocked(api.setHousingPaused).mockReset().mockImplementation(async (paused) => ({ paused }));
+  vi.mocked(api.disconnectHousing).mockReset().mockResolvedValue({ disconnected: true });
   writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
 });
@@ -27,7 +29,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("HousingIntegrationCard", () => {
   it("offers Generate when the company has no URL yet, then shows it", async () => {
-    vi.mocked(api.getHousingOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, integration: null });
+    vi.mocked(api.getHousingOverview).mockResolvedValueOnce({ canManage: true, hasIntegration: false, disconnected: false, integration: null });
     render(<HousingIntegrationCard />);
     expect(await screen.findByText("Not set up")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Housing.com" })).toBeInTheDocument();
@@ -118,7 +120,7 @@ describe("HousingIntegrationCard", () => {
   });
 
   it("tells an employee that only the owner can set it up, with no URL", async () => {
-    vi.mocked(api.getHousingOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getHousingOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<HousingIntegrationCard />);
     expect(await screen.findByText("Only the company owner can set up Housing.com.")).toBeInTheDocument();
     expect(screen.getByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
@@ -218,12 +220,90 @@ describe("HousingIntegrationCard Pause / Resume", () => {
   });
 
   it("gives an employee no Pause, no Resume and no Paused label", async () => {
-    vi.mocked(api.getHousingOverview).mockResolvedValue({ canManage: false, hasIntegration: true, integration: null });
+    vi.mocked(api.getHousingOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
     render(<HousingIntegrationCard />);
     expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
     expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+});
+
+const DISCONNECTED: HousingOverview = { canManage: true, hasIntegration: true, disconnected: true, integration: null };
+
+describe("HousingIntegrationCard Disconnect", () => {
+  it("puts Disconnect in the same row as Regenerate URL and Pause, in one fixed red", async () => {
+    render(<HousingIntegrationCard />);
+    const disconnect = await screen.findByRole("button", { name: "Disconnect" });
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Pause" }).parentElement);
+    expect(disconnect.parentElement).toBe(screen.getByRole("button", { name: "Regenerate URL" }).parentElement);
+    expect(disconnect.parentElement?.lastElementChild).toBe(disconnect);
+    expect(disconnect.className).toMatch(/^button \S*disconnectButton\S*$/);
+  });
+
+  it("disconnects on one click with no pop-up, then shows Disconnected and Generate new webhook URL", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValueOnce(CONNECTED).mockResolvedValue(DISCONNECTED);
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.disconnectHousing).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Lead delivery stopped")).toBeInTheDocument();
+    expect(screen.getByText("To receive Housing.com leads again, generate a new URL and send it to your Housing.com account manager.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" })).toBeEnabled();
+    // One fixed blue in light and dark mode, from this card's own CSS (the theme blue is too faint in dark mode).
+    expect(screen.getByRole("button", { name: "Generate new webhook URL" }).className).toMatch(/^button \S*generateNewButton\S*$/);
+    expect(screen.queryByLabelText("Webhook URL")).not.toBeInTheDocument();
+    for (const name of ["Disconnect", "Pause", "Resume", "Regenerate URL", "Refresh"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(screen.getByText("Generate the webhook URL first.")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(api.setHousingPaused).not.toHaveBeenCalled();
+    expect(api.createHousingIntegration).not.toHaveBeenCalled();
+  });
+
+  it("disconnects a paused URL too", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValueOnce(PAUSED).mockResolvedValue(DISCONNECTED);
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lead delivery paused")).not.toBeInTheDocument();
+  });
+
+  it("Generate new webhook URL connects again with a new URL", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValueOnce(DISCONNECTED).mockResolvedValue(WAITING);
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Generate new webhook URL" }));
+    await waitFor(() => expect(api.createHousingIntegration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("New URL created. Send it to your Housing.com account manager.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+    expect(screen.getByText("Waiting for first lead", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).not.toBeInTheDocument();
+  });
+
+  it("shows why a disconnect failed and keeps the URL and Disconnect", async () => {
+    vi.mocked(api.disconnectHousing).mockRejectedValue(new Error("Housing.com could not be disconnected. Try again."));
+    render(<HousingIntegrationCard />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    expect(await screen.findByText("Housing.com could not be disconnected. Try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeEnabled();
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue(URL_VALUE);
+  });
+
+  it("tells an employee Housing.com is disconnected, with no buttons", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValue({ ...DISCONNECTED, canManage: false });
+    render(<HousingIntegrationCard />);
+    expect(await screen.findByText("Disconnected", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.getByText("Only the company owner can set up Housing.com.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generate new webhook URL" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
+  });
+
+  it("gives an employee no Disconnect while Housing.com is set up", async () => {
+    vi.mocked(api.getHousingOverview).mockResolvedValue({ canManage: false, hasIntegration: true, disconnected: false, integration: null });
+    render(<HousingIntegrationCard />);
+    expect(await screen.findByText("Set up", { selector: ".status-badge" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).not.toBeInTheDocument();
   });
 });
 

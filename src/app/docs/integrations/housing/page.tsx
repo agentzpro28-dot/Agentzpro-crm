@@ -32,7 +32,7 @@ const FIELD_ROWS: ReadonlyArray<readonly [string, string]> = [
 const REPLY_ROWS: ReadonlyArray<readonly [string, string, string]> = [
   ["200", "Lead saved (\"success\": true, \"accepted\": 1). A repeat phone number also gets this, with \"duplicate\": true; it is added as a note on the existing lead.", "–"],
   ["400", "Not saved: the lead is not readable.", "\"Mobile number or email not found.\", \"The body is not a lead object.\", \"More than one lead in one request.\", \"More than 100 fields.\" or \"A field name is longer than 100 characters.\""],
-  ["404", "Not saved: wrong, replaced or expired URL.", "\"Unknown webhook.\""],
+  ["404", "Not saved: wrong, replaced, expired or disconnected URL.", "\"Unknown webhook.\""],
   ["413", "Not saved: the request is over 64 KB.", "\"Payload too large.\""],
   ["415", "Not saved: not JSON, form data or URL parameters (for example XML).", "\"The body is not JSON, form data or URL parameters.\""],
   ["429", "Not saved: too many leads this minute. Send again after the Retry-After seconds.", "\"Too many leads. Try again shortly.\""],
@@ -157,6 +157,19 @@ export default function HousingDocsPage() {
             <li>These {HOUSING_PREVIOUS_URL_DAYS} days are given to save your leads. Within these {HOUSING_PREVIOUS_URL_DAYS} days, <strong>ask your Housing.com account manager to connect the new URL.</strong></li>
             <li>If your account manager connects the new URL within {HOUSING_PREVIOUS_URL_DAYS} days, <strong>both the old URL and the new URL work until the {HOUSING_PREVIOUS_URL_DAYS} days end.</strong> The same lead will not be added twice to your account. You can also ask your account manager to remove the old URL and add the new URL.</li>
             <li>If the new URL is not connected within {HOUSING_PREVIOUS_URL_DAYS} days, <strong>your Housing.com leads will be lost. AgentzPro is not responsible for these lost leads. It is fully your responsibility.</strong></li>
+          </ul>
+        </div>
+      </section>
+
+      <section className={styles.section} aria-labelledby="disconnect-warning">
+        <div className={styles.warning} role="note">
+          <h2 id="disconnect-warning"><span aria-hidden="true">⚠ </span>Disconnect {LABEL}</h2>
+          <ul>
+            <li>Click <strong>Disconnect</strong> on the {LABEL} card to stop receiving {LABEL} leads. <strong>It works at once, with no confirmation.</strong></li>
+            <li>From then on, <strong>every lead {LABEL} sends to your webhook URL is refused and cannot be recovered</strong>. This includes your old URL during its {HOUSING_PREVIOUS_URL_DAYS} days after a Regenerate.</li>
+            <li>The {LABEL} leads already in your CRM stay as they are, and {LABEL} stays in the Source filter on the Leads page.</li>
+            <li>To receive {LABEL} leads again, click <strong>Generate new webhook URL</strong> and send the new URL to your {LABEL} account manager. <strong>The disconnected URL never works again.</strong></li>
+            <li>Ask your {LABEL} account manager to remove the disconnected URL.</li>
           </ul>
         </div>
       </section>

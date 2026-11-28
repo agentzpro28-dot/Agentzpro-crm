@@ -149,6 +149,8 @@ export async function getHousingOverview(): Promise<HousingOverview> { return re
 export async function createHousingIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/housing", { method: "POST", body: "{}" }); }
 /** Pauses Housing.com leads (every request is refused until Resume) or resumes them. Owner only. */
 export async function setHousingPaused(paused: boolean): Promise<{ paused: boolean }> { return changeConnection("/api/integrations/housing", { method: "PATCH", body: JSON.stringify({ paused }) }); }
+/** Disconnects Housing.com: its current and old URL are refused at once; a new URL can be generated later. Owner only. */
+export async function disconnectHousing(): Promise<{ disconnected: true }> { return changeConnection("/api/integrations/housing", { method: "DELETE" }); }
 
 /** Whether this company created its Sulekha URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
 export async function getSulekhaStatus(): Promise<SulekhaOverview> { return sharedConnectionCheck<SulekhaOverview>("/api/integrations/sulekha", false); }
