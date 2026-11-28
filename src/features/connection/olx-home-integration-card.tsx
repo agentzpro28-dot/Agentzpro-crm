@@ -1,15 +1,15 @@
 "use client";
 
-import { Check, Copy, Eye, EyeOff, Building, KeyRound, Loader2, Pause, Play, RefreshCw, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, Building, KeyRound, Loader2, Pause, Play, RefreshCw, Unplug, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { LoadingState, Notice, StatusBadge } from "@/components/ui";
 import { IntegrationCardTitle } from "@/features/connection/integration-card-title";
 import styles from "@/features/connection/olx-home-integration-card.module.css";
 import { formatDateTime } from "@/lib/date-utils";
 import { OLX_HOME_LABEL, OLX_HOME_PREVIOUS_URL_DAYS, olxHomeLeadsStillOnOldUrl, type OlxHomeOverview } from "@/lib/olx-home/olx-home";
-import { createOlxHomeIntegration, getOlxHomeOverview, setOlxHomePaused } from "@/services/crm-api-client";
+import { createOlxHomeIntegration, disconnectOlxHome, getOlxHomeOverview, setOlxHomePaused } from "@/services/crm-api-client";
 
-type Busy = "create" | "replace" | "refresh" | "pause" | "resume" | null;
+type Busy = "create" | "replace" | "refresh" | "pause" | "resume" | "disconnect" | null;
 type Message = { tone: "success" | "danger" | "warning" | "info"; text: string };
 
 const LABEL = OLX_HOME_LABEL;
@@ -79,6 +79,7 @@ export function OlxHomeIntegrationCard() {
   const badge = !overview ? null
     : paused ? { tone: "warning" as const, text: "Paused" }
     : integration ? (integration.lastLeadAt ? { tone: "success" as const, text: "Connected" } : { tone: "warning" as const, text: "Waiting for first lead" })
+      : overview.disconnected ? { tone: "danger" as const, text: "Disconnected" }
       : overview.hasIntegration && !canManage ? { tone: "success" as const, text: "Set up" } : { tone: "info" as const, text: "Not set up" };
 
   return <section className={`panel integration-card ${styles.card}`} aria-labelledby={titleId}><div className="panel__body stack">
@@ -113,7 +114,12 @@ export function OlxHomeIntegrationCard() {
             {paused
               ? <button className={`button ${styles.resumeButton}`} type="button" disabled={busy === "resume"} onClick={() => void run("resume", async () => { await setOlxHomePaused(false); await reload(); })}>{busy === "resume" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Play aria-hidden="true" size={18} />}Resume</button>
               : <button className={`button ${styles.pauseButton}`} type="button" disabled={busy === "pause"} onClick={() => setConfirmPause(true)}>{busy === "pause" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Pause aria-hidden="true" size={18} />}Pause</button>}
+            <button className={`button ${styles.disconnectButton}`} type="button" disabled={busy === "disconnect"} onClick={() => void run("disconnect", async () => { await disconnectOlxHome(); setConfirmReplace(false); setShowUrl(false); await reload(); })}>{busy === "disconnect" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <Unplug aria-hidden="true" size={18} />}Disconnect</button>
           </div>
+        </> : overview.disconnected ? <>
+          <p className={styles.disconnectedLine}>Lead delivery stopped<X aria-hidden="true" size={18} /></p>
+          <p className="field-help">To receive {LABEL} leads again, generate a new URL and send it to your {LABEL} account manager.</p>
+          <div className={`button-group ${styles.actionRow}`}><button className={`button ${styles.generateNewButton}`} type="button" disabled={busy === "create"} onClick={() => void run("create", async () => { await createOlxHomeIntegration(); await reload(); setMessage({ tone: "success", text: `New URL created. Send it to your ${LABEL} account manager.` }); })}>{busy === "create" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <KeyRound aria-hidden="true" size={18} />}Generate new webhook URL</button></div>
         </> : <>
           <p className="field-help">Create the secret URL {LABEL} will send your leads to.</p>
           <div className="button-group"><button className="button" type="button" disabled={busy === "create"} onClick={() => void run("create", async () => { await createOlxHomeIntegration(); await reload(); })}>{busy === "create" ? <Loader2 className="spin" aria-hidden="true" size={18} /> : <KeyRound aria-hidden="true" size={18} />}Generate webhook URL</button></div>
