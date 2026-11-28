@@ -68,7 +68,7 @@ export class NoBrokerIntegrationService {
       .maybeSingle();
     if (error) throw loadFailed();
     const row = data as IntegrationRow | null;
-    const overview: NoBrokerOverview = { canManage, hasIntegration: Boolean(row), integration: null };
+    const overview: NoBrokerOverview = { canManage, hasIntegration: Boolean(row), disconnected: Boolean(row && !row.is_active), integration: null };
     if (!canManage || !options.details || !row || !row.is_active) return overview;
 
     // Two reads at the same time: the requests marked failed, and the ones whose save stopped part-way (still "received").
@@ -137,6 +137,27 @@ export class NoBrokerIntegrationService {
     }
     if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "NOBROKER_INTEGRATION_NOT_FOUND" });
     return { paused };
+  }
+
+  /**
+   * Disconnects NoBroker (owner only). One UPDATE: is_active = false, and the pause and the old URL are cleared, so
+   * every request to the current URL and to the old URL gets 404 at once and nothing is saved (find_nobroker_integration
+   * and ingest_nobroker_lead both require is_active). The row stays, so leads already received keep their link and
+   * NoBroker stays in the /leads Source filter. Generating a URL again makes a brand-new one with no old URL
+   * (save_nobroker_url). Disconnecting twice changes nothing more.
+   */
+  public async disconnect(): Promise<{ disconnected: true }> {
+    const access = await requireCrmAccess();
+    if (access.membershipRole !== "owner") {
+      throw new AppError(`Only the company owner can manage ${NOBROKER_LABEL}.`, { status: 403, code: "NOBROKER_OWNER_REQUIRED" });
+    }
+    const { data, error } = await getSupabaseAdminClient().from("nobroker_integrations")
+      .update({ is_active: false, paused_at: null, previous_url_token_hash: null, previous_valid_until: null, previous_last_received_at: null })
+      .eq("tenant_id", access.tenantId)
+      .select("id");
+    if (error) throw new AppError(`${NOBROKER_LABEL} could not be disconnected. Try again.`, { status: 500, code: "NOBROKER_DISCONNECT_FAILED" });
+    if (!data || data.length === 0) throw new AppError("Generate the webhook URL first.", { status: 404, code: "NOBROKER_INTEGRATION_NOT_FOUND" });
+    return { disconnected: true };
   }
 }
 

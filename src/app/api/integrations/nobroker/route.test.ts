@@ -1,14 +1,14 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getOverview: vi.fn(), createOrReplace: vi.fn(), setPaused: vi.fn(), sameOrigin: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getOverview: vi.fn(), createOrReplace: vi.fn(), setPaused: vi.fn(), disconnect: vi.fn(), sameOrigin: vi.fn() }));
 vi.mock("@/lib/server/nobroker/nobroker-integration-service", () => ({
-  NoBrokerIntegrationService: class { public getOverview = mocks.getOverview; public createOrReplace = mocks.createOrReplace; public setPaused = mocks.setPaused; },
+  NoBrokerIntegrationService: class { public getOverview = mocks.getOverview; public createOrReplace = mocks.createOrReplace; public setPaused = mocks.setPaused; public disconnect = mocks.disconnect; },
 }));
 vi.mock("@/lib/server/auth/same-origin", () => ({ assertSameOrigin: mocks.sameOrigin }));
 
 import { AppError } from "@/lib/server/app-error";
-import { GET, PATCH, POST } from "@/app/api/integrations/nobroker/route";
+import { DELETE, GET, PATCH, POST } from "@/app/api/integrations/nobroker/route";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -70,5 +70,29 @@ describe("/api/integrations/nobroker", () => {
     const response = await PATCH(new Request("https://crm.example.com/api/integrations/nobroker", { method: "PATCH", headers: { origin: "https://evil.example" }, body: JSON.stringify({ paused: true }) }));
     expect(response.status).toBe(403);
     expect(mocks.setPaused).not.toHaveBeenCalled();
+  });
+
+  it("DELETE checks the origin, then disconnects NoBroker", async () => {
+    mocks.disconnect.mockResolvedValue({ disconnected: true });
+    const request = new Request("https://crm.example.com/api/integrations/nobroker", { method: "DELETE" });
+    const response = await DELETE(request);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ disconnected: true });
+    expect(mocks.sameOrigin).toHaveBeenCalledWith(request);
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("DELETE blocks a cross-site request before disconnecting", async () => {
+    mocks.sameOrigin.mockImplementation(() => { throw new AppError("Cross-origin requests are not permitted on this endpoint.", { status: 403, code: "CROSS_ORIGIN_REQUEST" }); });
+    const response = await DELETE(new Request("https://crm.example.com/api/integrations/nobroker", { method: "DELETE", headers: { origin: "https://evil.example" } }));
+    expect(response.status).toBe(403);
+    expect(mocks.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("DELETE passes the owner-only and the no-URL refusals through", async () => {
+    mocks.disconnect.mockRejectedValueOnce(new AppError("Only the company owner can manage NoBroker.", { status: 403, code: "NOBROKER_OWNER_REQUIRED" }));
+    expect((await DELETE(new Request("https://crm.example.com/api/integrations/nobroker", { method: "DELETE" }))).status).toBe(403);
+    mocks.disconnect.mockRejectedValueOnce(new AppError("Generate the webhook URL first.", { status: 404, code: "NOBROKER_INTEGRATION_NOT_FOUND" }));
+    expect((await DELETE(new Request("https://crm.example.com/api/integrations/nobroker", { method: "DELETE" }))).status).toBe(404);
   });
 });

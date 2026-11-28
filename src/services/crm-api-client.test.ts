@@ -66,6 +66,7 @@ describe("shared connection checks", () => {
       () => client.setHousingPaused(true),
       () => client.disconnectHousing(),
       () => client.setNoBrokerPaused(true),
+      () => client.disconnectNoBroker(),
       () => client.setSulekhaPaused(true),
       () => client.setOlxHomePaused(true),
       () => client.disconnectMagicbricks(),

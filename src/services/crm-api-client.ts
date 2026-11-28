@@ -171,6 +171,8 @@ export async function getNoBrokerOverview(): Promise<NoBrokerOverview> { return 
 export async function createNoBrokerIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/nobroker", { method: "POST", body: "{}" }); }
 /** Pauses NoBroker leads (every request is refused until Resume) or resumes them. Owner only. */
 export async function setNoBrokerPaused(paused: boolean): Promise<{ paused: boolean }> { return changeConnection("/api/integrations/nobroker", { method: "PATCH", body: JSON.stringify({ paused }) }); }
+/** Disconnects NoBroker: its current and old URL are refused at once; a new URL can be generated later. Owner only. */
+export async function disconnectNoBroker(): Promise<{ disconnected: true }> { return changeConnection("/api/integrations/nobroker", { method: "DELETE" }); }
 
 /** Whether this company created its OLX Home URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
 export async function getOlxHomeStatus(): Promise<OlxHomeOverview> { return sharedConnectionCheck<OlxHomeOverview>("/api/integrations/olx-home", false); }
