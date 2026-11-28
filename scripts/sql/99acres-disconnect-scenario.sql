@@ -20,7 +20,6 @@ declare
   v_log uuid;
   v_result jsonb;
   v_count integer;
-  v_leads_before bigint := (select count(*) from public.lead_data);
 begin
   insert into public.tenants (tenant_name, timezone) values ('Disconnect scenario (rolled back)', 'Asia/Kolkata')
   returning tenant_id into v_tenant;
@@ -84,7 +83,7 @@ begin
     raise exception '5: a save on a disconnected URL must be refused';
   exception when sqlstate 'P0002' then null;
   end;
-  if (select count(*) from public.lead_data) <> v_leads_before then raise exception '5: a disconnected URL must save no lead'; end if;
+  if exists (select 1 from public.lead_data where tenant_id = v_tenant) then raise exception '5: a disconnected URL must save no lead'; end if;
   -- Still counted for the Source filter (the row stays).
   if not exists (select 1 from public.portal_integrations where tenant_id = v_tenant and portal_name = '99acres') then
     raise exception '5: the row must stay after Disconnect';
