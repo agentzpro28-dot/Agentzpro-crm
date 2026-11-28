@@ -1,14 +1,14 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getOverview: vi.fn(), createOrReplace: vi.fn(), setPaused: vi.fn(), sameOrigin: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getOverview: vi.fn(), createOrReplace: vi.fn(), setPaused: vi.fn(), disconnect: vi.fn(), sameOrigin: vi.fn() }));
 vi.mock("@/lib/server/sulekha/sulekha-integration-service", () => ({
-  SulekhaIntegrationService: class { public getOverview = mocks.getOverview; public createOrReplace = mocks.createOrReplace; public setPaused = mocks.setPaused; },
+  SulekhaIntegrationService: class { public getOverview = mocks.getOverview; public createOrReplace = mocks.createOrReplace; public setPaused = mocks.setPaused; public disconnect = mocks.disconnect; },
 }));
 vi.mock("@/lib/server/auth/same-origin", () => ({ assertSameOrigin: mocks.sameOrigin }));
 
 import { AppError } from "@/lib/server/app-error";
-import { GET, PATCH, POST } from "@/app/api/integrations/sulekha/route";
+import { DELETE, GET, PATCH, POST } from "@/app/api/integrations/sulekha/route";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -75,5 +75,31 @@ describe("PATCH /api/integrations/sulekha", () => {
     const response = await PATCH(patch(JSON.stringify({ paused: true }), "https://evil.example"));
     expect(response.status).toBe(403);
     expect(mocks.setPaused).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /api/integrations/sulekha", () => {
+  const remove = (origin = "https://crm.example.com") => new Request("https://crm.example.com/api/integrations/sulekha", { method: "DELETE", headers: { host: "crm.example.com", origin } });
+
+  it("checks the origin, then disconnects Sulekha", async () => {
+    mocks.disconnect.mockResolvedValue({ disconnected: true });
+    const request = remove();
+    const response = await DELETE(request);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ disconnected: true });
+    expect(mocks.sameOrigin).toHaveBeenCalledWith(request);
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a cross-site request (the real origin check), and passes the owner-only and no-URL refusals through", async () => {
+    const real = await vi.importActual<typeof import("@/lib/server/auth/same-origin")>("@/lib/server/auth/same-origin");
+    mocks.sameOrigin.mockImplementation(real.assertSameOrigin);
+    expect((await DELETE(remove("https://evil.example"))).status).toBe(403);
+    expect(mocks.disconnect).not.toHaveBeenCalled();
+    mocks.disconnect.mockRejectedValueOnce(new AppError("Only the company owner can manage Sulekha.", { status: 403, code: "SULEKHA_OWNER_REQUIRED" }));
+    expect((await DELETE(remove())).status).toBe(403);
+    mocks.disconnect.mockRejectedValueOnce(new AppError("Generate the webhook URL first.", { status: 404, code: "SULEKHA_INTEGRATION_NOT_FOUND" }));
+    expect((await DELETE(remove())).status).toBe(404);
+    expect(mocks.disconnect).toHaveBeenCalledTimes(2);
   });
 });

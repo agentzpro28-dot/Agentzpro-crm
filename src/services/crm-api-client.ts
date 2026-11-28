@@ -157,6 +157,8 @@ export async function getSulekhaOverview(): Promise<SulekhaOverview> { return re
 export async function createSulekhaIntegration(): Promise<{ url: string }> { return changeConnection("/api/integrations/sulekha", { method: "POST", body: "{}" }); }
 /** Pauses Sulekha leads (every request is refused until Resume) or resumes them. Owner only. */
 export async function setSulekhaPaused(paused: boolean): Promise<{ paused: boolean }> { return changeConnection("/api/integrations/sulekha", { method: "PATCH", body: JSON.stringify({ paused }) }); }
+/** Disconnects Sulekha: its current and old URL are refused at once; a new URL can be generated later. Owner only. */
+export async function disconnectSulekha(): Promise<{ disconnected: true }> { return changeConnection("/api/integrations/sulekha", { method: "DELETE" }); }
 
 /** Whether this company created its NoBroker URL (canManage, hasIntegration); shared like the checks above. Never carries a URL. */
 export async function getNoBrokerStatus(): Promise<NoBrokerOverview> { return sharedConnectionCheck<NoBrokerOverview>("/api/integrations/nobroker", false); }
